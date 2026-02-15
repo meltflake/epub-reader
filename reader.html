@@ -112,8 +112,7 @@
     <span class="title" id="book-title">Loading...</span>
     <span class="chapter" id="chapter-label"></span>
     <button id="btn-translate" title="显示翻译">🌐</button>
-    <button id="btn-vocab" title="Export vocabulary">📖</button>
-    <button id="btn-export-hl" title="Export highlights">📝</button>
+    <!-- vocab/highlights export removed -->
     <button id="btn-theme" class="theme-toggle" title="切换主题">🌙</button>
     <button id="btn-toc" title="Table of Contents">&#9776;</button>
   </div>
@@ -907,72 +906,7 @@
       }
     })
 
-    // --- Export Vocabulary ---
-    document.getElementById('btn-vocab').addEventListener('click', async () => {
-      const words = await getAllVocabulary()
-      if (!words || words.length === 0) {
-        alert('生词本是空的')
-        return
-      }
-      
-      // Sort by addedAt descending (newest first)
-      words.sort((a, b) => b.addedAt - a.addedAt)
-      
-      // Generate Markdown
-      const date = new Date().toISOString().split('T')[0]
-      let md = `# Vocabulary\n\nExported: ${date}\n\n`
-      for (const w of words) {
-        md += `- ${w.word}\n`
-      }
-      
-      // Trigger download
-      const blob = new Blob([md], { type: 'text/markdown' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `vocabulary-${date}.md`
-      a.click()
-      URL.revokeObjectURL(url)
-    })
-
-    // --- Export Highlights ---
-    document.getElementById('btn-export-hl').addEventListener('click', async () => {
-      const highlights = await getAllHighlights()
-      if (!highlights || highlights.length === 0) {
-        alert('划线本是空的')
-        return
-      }
-      
-      // Sort by addedAt descending (newest first)
-      highlights.sort((a, b) => b.addedAt - a.addedAt)
-      
-      // Group by book
-      const byBook = {}
-      for (const hl of highlights) {
-        const book = hl.bookTitle || 'Unknown'
-        if (!byBook[book]) byBook[book] = []
-        byBook[book].push(hl)
-      }
-      
-      // Generate Markdown
-      const date = new Date().toISOString().split('T')[0]
-      let md = `# Highlights\n\nExported: ${date}\n\n`
-      for (const [book, hls] of Object.entries(byBook)) {
-        md += `## ${book}\n\n`
-        for (const hl of hls) {
-          md += `> ${hl.text}\n\n`
-        }
-      }
-      
-      // Trigger download
-      const blob = new Blob([md], { type: 'text/markdown' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `highlights-${date}.md`
-      a.click()
-      URL.revokeObjectURL(url)
-    })
+    // Export vocabulary/highlights removed — use index.html tools instead
 
     // --- Translation (display only - translation triggered from index.html) ---
     console.log('📚 Setting up translation display...')
