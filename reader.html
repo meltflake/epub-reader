@@ -813,6 +813,12 @@
     document.title = title
 
     // Navigate to saved position or start
+    // CRITICAL: Track the known-good progress so relocate events during init don't overwrite it
+    const savedProgress = bookData.progress || 0
+    const savedLocation = bookData.lastLocation || null
+    let initComplete = false  // true once we've confirmed position is correct
+    let initTimestamp = 0     // when init completed — protect for 3s after
+
     console.log('📚 Initializing view position...', bookData.lastLocation ? `lastLocation=${bookData.lastLocation.substring(0,60)}` : 'NO lastLocation → showTextStart')
     try {
       if (bookData.lastLocation) {
@@ -820,12 +826,13 @@
       } else {
         await view.init({ showTextStart: true })
       }
+      initTimestamp = Date.now()
       console.log('📚 View position initialized OK')
     } catch (e) {
       console.warn('⚠️ Failed to restore position:', e.message)
-      // Clear corrupted location and retry once
-      bookData.lastLocation = null
-      await saveBook(bookData)
+      // DON'T clear lastLocation or save — keep the known-good data intact
+      // Just try to display something
+      initTimestamp = Date.now()
       try {
         await view.init({ showTextStart: true })
       } catch (e2) {
@@ -861,6 +868,25 @@
 
       if (detail.tocItem) {
         chapterLabel.textContent = detail.tocItem.label || ''
+      }
+
+      // PROGRESS PROTECTION: During init window (3s after view.init), reject progress regression
+      const timeSinceInit = Date.now() - initTimestamp
+      if (!initComplete && timeSinceInit < 3000) {
+        // Within protection window: only accept if progress >= saved (allow forward, block backward)
+        if (savedProgress > 0 && fraction < savedProgress - 0.01) {
+          console.log(`📚 ⛔ BLOCKED save during init: fraction=${Math.round(fraction*100)}% < saved=${Math.round(savedProgress*100)}% (${timeSinceInit}ms after init)`)
+          return  // Don't save — this is the wrong position from a failed/incomplete restore
+        }
+        // First relocate that reaches or exceeds saved progress → init is confirmed good
+        if (fraction >= savedProgress - 0.01) {
+          initComplete = true
+          console.log(`📚 ✅ Init confirmed at ${Math.round(fraction*100)}% (saved was ${Math.round(savedProgress*100)}%)`)
+        }
+      } else if (!initComplete) {
+        // Protection window expired but position never reached saved — accept reality
+        initComplete = true
+        console.log(`📚 ⚠️ Init protection expired at ${Math.round(fraction*100)}%, accepting (saved was ${Math.round(savedProgress*100)}%)`)
       }
 
       // Save progress — track promise so we can await before navigation
