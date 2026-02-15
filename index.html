@@ -181,7 +181,7 @@
     </div>
   </div>
   <input type="file" id="file-input" accept=".epub" hidden>
-  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.1.1</div>
+  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.1.2</div>
 
   <script type="module">
     import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, getAllTranslationCounts, importTranslations, getCachedEpub } from './db.js'
@@ -602,7 +602,16 @@
       return String(a)
     }
 
+    let renderBooksQueued = false, renderBooksRunning = false
     async function renderBooks() {
+      if (renderBooksRunning) { renderBooksQueued = true; return }
+      renderBooksRunning = true
+      try { await _renderBooksImpl() } finally {
+        renderBooksRunning = false
+        if (renderBooksQueued) { renderBooksQueued = false; renderBooks() }
+      }
+    }
+    async function _renderBooksImpl() {
       let books = await getAllBooks()
       books.sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt))
       
