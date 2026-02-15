@@ -266,3 +266,13 @@
   - `isSelecting` (mouse drag >5px) now blocks toolbar toggle
   - Clicking outside dict popup closes it without toggling toolbar
   - Clicking outside delete popup closes it without toggling toolbar
+
+#### Batch 17: Vocabulary word underline (2026-02-15)
+- **Feature**: Words looked up in dictionary now get a dotted underline in the text
+- **Style**: `underline dotted #93a1a1` (Solarized base1 — lighter than sentence highlight's solid `#b58900`) with 1.5px thickness
+- **On lookup**: Word is immediately underlined where selected + saved to vocabulary + added to in-memory cache
+- **On page load**: `restoreVocabHighlights(doc)` scans all text nodes for vocabulary words (word-boundary matching) and applies the dotted underline
+- **Cache**: `cachedVocabWords` (Set of lowercase words) loaded once from IndexedDB `vocabulary` store, updated live on new lookups
+- **Skip logic**: Text nodes inside `.epub-highlight` or `.epub-vocab` spans are skipped to avoid double-decoration
+- **Reverse-order application**: When multiple vocab words found in one text node, applied from end to start to preserve character offsets
+- **CSS class**: `.epub-vocab` (vs `.epub-highlight` for sentence highlights)
