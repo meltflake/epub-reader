@@ -203,9 +203,13 @@
       return { bg: '#fdf6e3', text: '#657b83', link: '#859900', linkHover: '#b58900', zhColor: '#93a1a1' }
     }
 
+    const FONT_SIZE_KEY = 'reader-font-size'
+    function getReaderFontSize() { return parseInt(localStorage.getItem(FONT_SIZE_KEY)) || 16 }
+
     function updateReaderTheme(theme) {
       if (window.currentView) {
         const c = getThemeColors(theme)
+        const fs = getReaderFontSize()
         window.currentView.renderer.setStyles?.(`
           @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
           @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400&display=swap');
@@ -214,13 +218,14 @@
             background: ${c.bg} !important; 
             color: ${c.text} !important; 
             font-family: 'JetBrainsMono Nerd Font Mono', 'JetBrains Mono', -apple-system, sans-serif !important;
+            font-size: ${fs}px !important;
             padding: 20px !important;
           }
           p, li, blockquote, dd { line-height: 1.8; }
           p { margin-bottom: 1.2em !important; text-indent: 0 !important; }
           a, a:link, a:visited { color: ${c.link} !important; text-decoration: underline; }
           a:hover { color: ${c.linkHover} !important; }
-          .zh-translation { font-family: 'Noto Sans SC', 'HarmonyOS Sans SC', sans-serif !important; font-weight: 400; color: ${c.zhColor}; }
+          .zh-translation { font-family: 'Noto Sans SC', 'HarmonyOS Sans SC', sans-serif !important; font-weight: 400; color: ${c.zhColor}; font-size: ${Math.round(fs * 0.85)}px !important; }
         `)
       }
     }

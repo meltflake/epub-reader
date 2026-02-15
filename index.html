@@ -138,9 +138,35 @@
         <span class="icon">📝</span>
         <span class="count" id="highlight-count">0</span>
       </a>
-      <button class="theme-toggle" id="theme-toggle" title="切换主题">🌙</button>
+      <button class="theme-toggle" id="settings-btn" title="设置">⚙️</button>
     </div>
   </header>
+
+  <!-- Settings Panel -->
+  <div id="settings-overlay" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.5);">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--bg-card); border-radius:12px; padding:24px; min-width:280px; max-width:90vw; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h3 style="margin:0; font-size:16px; color:var(--text);">设置</h3>
+        <button id="settings-close" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--text-muted);">✕</button>
+      </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">主题</div>
+        <div style="display:flex; gap:8px;" id="theme-options">
+          <button data-theme="light" style="flex:1; padding:10px 0; border-radius:8px; border:2px solid var(--border); cursor:pointer; font-size:13px; background:#fdf6e3; color:#657b83;">☀️ 浅色</button>
+          <button data-theme="dark" style="flex:1; padding:10px 0; border-radius:8px; border:2px solid var(--border); cursor:pointer; font-size:13px; background:#002b36; color:#839496;">🌙 深色</button>
+          <button data-theme="eink" style="flex:1; padding:10px 0; border-radius:8px; border:2px solid var(--border); cursor:pointer; font-size:13px; background:#ffffff; color:#000000;">📖 墨水屏</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">字体大小</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button id="font-decrease" style="width:36px; height:36px; border-radius:8px; border:1px solid var(--border); background:var(--bg); cursor:pointer; font-size:18px; color:var(--text);">A-</button>
+          <span id="font-size-label" style="font-size:14px; color:var(--text); min-width:40px; text-align:center;">16px</span>
+          <button id="font-increase" style="width:36px; height:36px; border-radius:8px; border:1px solid var(--border); background:var(--bg); cursor:pointer; font-size:18px; color:var(--text);">A+</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="book-grid" id="book-grid">
     <div class="add-book-card" id="add-book-card">
@@ -348,10 +374,37 @@
     }
 
     // ========== 主题 ==========
-    const themeBtn = document.getElementById('theme-toggle')
-    const themeIcons = { light: '🌙', dark: '📖', eink: '☀️' }
-    themeBtn.textContent = themeIcons[getTheme()] || '🌙'
-    themeBtn.addEventListener('click', () => { const t = toggleTheme(); themeBtn.textContent = themeIcons[t] || '🌙' })
+    // --- Settings Panel ---
+    import { setTheme } from './theme.js'
+    const settingsOverlay = document.getElementById('settings-overlay')
+    const FONT_SIZE_KEY = 'reader-font-size'
+    let currentFontSize = parseInt(localStorage.getItem(FONT_SIZE_KEY)) || 16
+    
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      updateThemeButtons()
+      document.getElementById('font-size-label').textContent = currentFontSize + 'px'
+      settingsOverlay.style.display = 'block'
+    })
+    document.getElementById('settings-close').addEventListener('click', () => settingsOverlay.style.display = 'none')
+    settingsOverlay.addEventListener('click', e => { if (e.target === settingsOverlay) settingsOverlay.style.display = 'none' })
+    
+    function updateThemeButtons() {
+      const current = getTheme()
+      document.querySelectorAll('#theme-options button').forEach(btn => {
+        btn.style.borderColor = btn.dataset.theme === current ? 'var(--accent)' : 'var(--border)'
+        btn.style.borderWidth = btn.dataset.theme === current ? '3px' : '2px'
+      })
+    }
+    document.querySelectorAll('#theme-options button').forEach(btn => {
+      btn.addEventListener('click', () => { setTheme(btn.dataset.theme); updateThemeButtons() })
+    })
+    
+    document.getElementById('font-decrease').addEventListener('click', () => {
+      if (currentFontSize > 12) { currentFontSize -= 2; localStorage.setItem(FONT_SIZE_KEY, currentFontSize); document.getElementById('font-size-label').textContent = currentFontSize + 'px' }
+    })
+    document.getElementById('font-increase').addEventListener('click', () => {
+      if (currentFontSize < 28) { currentFontSize += 2; localStorage.setItem(FONT_SIZE_KEY, currentFontSize); document.getElementById('font-size-label').textContent = currentFontSize + 'px' }
+    })
 
     // ========== DOM ==========
     const cloudIcon = document.getElementById('cloud-icon')
