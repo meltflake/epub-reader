@@ -293,3 +293,12 @@
   - If lock held by another tab: show "其他标签页翻译中..." badge, skip
   - Fallback: if `navigator.locks` unavailable (rare), proceeds without lock (same as before)
 - **Scope**: Only affects translation — reading/sync are unaffected
+
+#### Batch 20: Toolbar toggle without page reflow (2026-02-15)
+- **Bug**: Tapping to show/hide toolbar caused page content to jump/reflow
+- **Root cause**: Toolbar used `position: sticky` (visible) → `position: absolute` (hidden), participating in flex layout. Bottom bar used `display: none` ↔ `display: flex`. Both changes altered the flex container's available space, forcing `#reader-container` to resize and foliate-js to re-layout.
+- **Fix**: Both bars now use `position: fixed` (overlay on top of content, never in layout flow):
+  - Toolbar: `position: fixed; top: 0` — hidden via `transform: translateY(-100%)`
+  - Bottom bar: `position: fixed; bottom: 0` — hidden via `transform: translateY(100%)`
+  - `#reader-container`: changed from `flex: 1` to `position: absolute; inset: 0` (fills viewport independently)
+- **Result**: Toggling bars is purely visual (transform + opacity), zero layout recalculation
