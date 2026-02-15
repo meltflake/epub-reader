@@ -633,7 +633,8 @@
       }
       
       // Pre-fetch all translation counts in one pass (avoids sequential await per book)
-      const translationCounts = await getAllTranslationCounts()
+      let translationCounts = {}
+      try { translationCounts = await getAllTranslationCounts() } catch(e) { console.error('Failed to fetch translation counts:', e) }
 
       for (const book of books) {
         const card = document.createElement('div'); card.className = 'book-card'; card.setAttribute('data-book-id', book.id)
