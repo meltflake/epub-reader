@@ -51,14 +51,13 @@
     #reader-container foliate-view { width: 100%; height: 100%; }
 
     .bottom-bar {
-      display: none; /* Hidden by default */
-      align-items: center; padding: 6px 16px; 
+      display: flex; align-items: center; padding: 6px 16px; 
       background: var(--bg-bar); border-top: 1px solid var(--border); 
-      gap: 10px; z-index: 10;
+      gap: 10px; z-index: 10; flex-shrink: 0;
       transition: transform 0.25s ease, opacity 0.25s ease;
     }
     .bottom-bar.bar-hidden {
-      transform: translateY(100%); opacity: 0; pointer-events: none;
+      display: none;
     }
     .bottom-bar input[type="range"] { flex: 1; height: 4px; cursor: pointer; accent-color: var(--accent); }
     .progress-text { font-size: 12px; color: var(--text-secondary); min-width: 36px; text-align: right; }
@@ -221,7 +220,7 @@
             color: ${c.text} !important; 
             font-family: 'JetBrainsMono Nerd Font Mono', 'JetBrains Mono', -apple-system, sans-serif !important;
             font-size: ${fs}px !important;
-            padding: 20px 20px 60px 20px !important;
+            padding: 20px !important;
           }
           * { -webkit-touch-callout: none; }
           p, li, blockquote, dd { line-height: 1.8; }
@@ -283,9 +282,10 @@
     // --- Toggle toolbar/bottombar ---
     const toolbar = document.querySelector('.toolbar')
     const bottomBar = document.querySelector('.bottom-bar')
-    // Auto-hide toolbar on mobile only
+    // Auto-hide toolbar+bottombar on mobile only
     if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
       toolbar.classList.add('hidden')
+      bottomBar.classList.add('bar-hidden')
     }
     function toggleBars() {
       toolbar.classList.toggle('hidden')
@@ -661,9 +661,14 @@
     const meta = view.book.metadata || {}
     if (meta.title) bookData.title = meta.title
     if (meta.author) {
-      bookData.author = Array.isArray(meta.author)
-        ? meta.author.map(a => typeof a === 'string' ? a : (a.name || a)).join(', ')
-        : String(meta.author)
+      const fmtAuthor = (a) => {
+        if (!a) return ''
+        if (typeof a === 'string') return a
+        if (Array.isArray(a)) return a.map(fmtAuthor).filter(Boolean).join(', ')
+        if (typeof a === 'object') return a.name || a.value || a.text || ''
+        return String(a)
+      }
+      bookData.author = fmtAuthor(meta.author)
     }
 
     // Extract cover if we don't have one
