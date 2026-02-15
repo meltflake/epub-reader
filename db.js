@@ -343,6 +343,25 @@ export async function getTranslation(bookId, original) {
   })
 }
 
+export async function getAllTranslationCounts() {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('translations')
+    const store = tx.objectStore('translations')
+    const req = store.openCursor()
+    const counts = {}
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (cursor) {
+        const bookId = cursor.value.bookId
+        counts[bookId] = (counts[bookId] || 0) + 1
+        cursor.continue()
+      } else resolve(counts)
+    }
+    req.onerror = () => reject(req.error)
+  })
+}
+
 export async function getBookTranslations(bookId) {
   const db = await openDB()
   return new Promise((resolve, reject) => {

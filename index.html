@@ -183,7 +183,7 @@
   <input type="file" id="file-input" accept=".epub" hidden>
 
   <script type="module">
-    import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, importTranslations } from './db.js'
+    import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, getAllTranslationCounts, importTranslations } from './db.js'
     import { toggleTheme, getTheme } from './theme.js'
     import { isDropboxConfigured, isLoggedIn, startAuth, handleAuthCallback, clearAccessToken, getSyncStatus } from './dropbox.js'
     import { syncWithDropbox, pushToDropbox, syncBookTranslations } from './sync.js'
@@ -632,6 +632,9 @@
         return
       }
       
+      // Pre-fetch all translation counts in one pass (avoids sequential await per book)
+      const translationCounts = await getAllTranslationCounts()
+
       for (const book of books) {
         const card = document.createElement('div'); card.className = 'book-card'; card.setAttribute('data-book-id', book.id)
         
@@ -659,8 +662,7 @@
         
         const progressHTML = book.progress > 0 ? `<div class="book-progress">${Math.round(book.progress * 100)}%</div>` : ''
         
-        const translations = await getBookTranslations(book.id)
-        const translationCount = Object.keys(translations).length
+        const translationCount = translationCounts[book.id] || 0
         const activeState = translationStates.get(book.id)
         const queuedTask = getQueuedTask(book.id)
         
