@@ -181,7 +181,7 @@
     </div>
   </div>
   <input type="file" id="file-input" accept=".epub" hidden>
-  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.0.28</div>
+  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.0.29</div>
 
   <script type="module">
     import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, getAllTranslationCounts, importTranslations } from './db.js'
@@ -456,12 +456,7 @@
     const bookGrid = document.getElementById('book-grid')
 
     // ========== Dropbox 同步 ==========
-    const authResult = await handleAuthCallback()
-    // If URL had auth code but login failed, show error
-    if (new URLSearchParams(window.location.search).has('code') && !authResult && !isLoggedIn()) {
-      syncTimeEl.textContent = '登录失败，请重试'
-      syncTimeEl.style.color = '#dc322f'
-    }
+    await handleAuthCallback()
     let isSyncing = false
     let autoSyncInterval = null
 
@@ -483,32 +478,18 @@
       cloudIcon.title = '点击同步'
     }
 
-    // Debug sync log (visible on screen)
-    const syncLog = document.createElement('div')
-    syncLog.id = 'sync-log'
-    syncLog.style.cssText = 'position:fixed;bottom:40px;left:8px;right:8px;max-height:200px;overflow:auto;background:var(--bg);border:1px solid var(--dim);border-radius:8px;padding:8px;font-size:11px;font-family:monospace;z-index:9999;display:none;white-space:pre-wrap;color:var(--fg)'
-    document.body.appendChild(syncLog)
-    function slog(msg) {
-      syncLog.style.display = 'block'
-      syncLog.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n'
-      syncLog.scrollTop = syncLog.scrollHeight
-    }
-
     async function doSync(silent = false) {
-      if (isSyncing) { slog('⏳ sync already running'); return }
-      slog(`doSync: configured=${isDropboxConfigured()} loggedIn=${isLoggedIn()}`)
+      if (isSyncing) return
       if (!isDropboxConfigured() || !isLoggedIn()) {
-        slog('❌ not configured or not logged in')
         if (!silent) startAuth()
         return
       }
       isSyncing = true
       cloudIcon.classList.add('spinning')
       try {
-        const result = await syncWithDropbox(msg => slog('📡 ' + msg))
-        slog(result.success ? '✅ sync done' : '❌ sync failed: ' + result.error)
+        const result = await syncWithDropbox(() => {})
         if (result.success) { await renderBooks(); updateToolCounts() }
-      } catch (e) { slog('💥 sync error: ' + e.message); console.error('Sync error:', e) }
+      } catch (e) { console.error('Sync error:', e) }
       finally { isSyncing = false; cloudIcon.classList.remove('spinning'); updateSyncUI() }
     }
 
@@ -769,16 +750,9 @@
     }
 
     // ========== 初始化 ==========
-    try {
-      await renderBooks()
-      updateToolCounts()
-      await resumeQueuedTranslations()
-    } catch(e) {
-      const errDiv = document.createElement('div')
-      errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:12px;background:red;color:white;font-size:14px;z-index:9999;word-break:break-all'
-      errDiv.textContent = 'Init error: ' + e.message + ' | ' + e.stack
-      document.body.appendChild(errDiv)
-    }
+    await renderBooks()
+    updateToolCounts()
+    await resumeQueuedTranslations()
   </script>
 </body>
 </html>
