@@ -1,6 +1,6 @@
 // translate-worker.js - Background translation Web Worker
 const TRANSLATE_API = 'https://nixbook.wulujia.workers.dev'
-const ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929'
+const TRANSLATE_MODEL = 'minimax/minimax-m2.5'
 const BATCH_SIZE = 10
 const FOLIATE_CDN = 'https://cdn.jsdelivr.net/gh/johnfactotum/foliate-js@main/'
 
@@ -31,7 +31,7 @@ ${numbered}`
       
     },
     body: JSON.stringify({
-      model: ANTHROPIC_MODEL,
+      model: TRANSLATE_MODEL,
       max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }]
     })

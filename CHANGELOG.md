@@ -148,6 +148,15 @@
 
 ## Changelog
 
+### 2026-07-26
+
+#### v0.1.1: Translation backend → OpenRouter + MiniMax M2.5
+- Switched translation model from `claude-3-5-haiku-20241022` (Anthropic direct) to `minimax/minimax-m2.5` via OpenRouter
+- Renamed constant `ANTHROPIC_MODEL` → `TRANSLATE_MODEL` in index.html and translate-worker.js
+- Worker updated to proxy through OpenRouter API (`openrouter.ai/api/v1/chat/completions`) instead of Anthropic API directly
+- Worker converts OpenAI response format back to Anthropic format (client code unchanged)
+- Cost reduction: $0.80/$4.00 → $0.30/$1.20 per million tokens (input/output)
+
 ### 2026-02-15
 
 #### Batch 1: Core fixes

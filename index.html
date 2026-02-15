@@ -181,7 +181,7 @@
     </div>
   </div>
   <input type="file" id="file-input" accept=".epub" hidden>
-  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.1.0</div>
+  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.1.1</div>
 
   <script type="module">
     import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, getAllTranslationCounts, importTranslations, getCachedEpub } from './db.js'
@@ -192,7 +192,7 @@
     // ========== 翻译相关 ==========
     const translationStates = new Map()
     const TRANSLATE_API = 'https://nixbook.wulujia.workers.dev'
-    const ANTHROPIC_MODEL = 'claude-3-5-haiku-20241022'
+    const TRANSLATE_MODEL = 'minimax/minimax-m2.5'
     const FOLIATE_CDN = 'https://cdn.jsdelivr.net/gh/johnfactotum/foliate-js@main/'
     const TRANSLATION_QUEUE_KEY = 'translation-queue'
     let activeTranslations = new Set()
@@ -262,7 +262,7 @@
       const res = await fetch(TRANSLATE_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 4096, messages: [{ role: 'user', content: `将以下英文段落翻译成中文。保持段落编号，只输出翻译结果。\n\n${numbered}` }] })
+        body: JSON.stringify({ model: TRANSLATE_MODEL, max_tokens: 4096, messages: [{ role: 'user', content: `将以下英文段落翻译成中文。保持段落编号，只输出翻译结果。\n\n${numbered}` }] })
       })
       if (!res.ok) throw new Error(`API ${res.status}`)
       const data = await res.json()
