@@ -722,12 +722,11 @@
         chapterLabel.textContent = detail.tocItem.label || ''
       }
 
-      // Save progress
+      // Save progress (await to ensure IndexedDB write completes before user navigates away)
       bookData.progress = fraction
       bookData.lastLocation = detail.cfi
       bookData.lastReadAt = Date.now()
-      saveBook(bookData)
-      debouncedSync()
+      saveBook(bookData).then(() => debouncedSync()).catch(e => console.error('Save failed:', e))
     })
 
     slider.addEventListener('input', () => {

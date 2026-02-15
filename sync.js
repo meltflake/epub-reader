@@ -214,7 +214,21 @@ async function applyMergedData(data) {
   
   // Translations are synced separately per book (not in main data file)
   
-  // Books metadata is handled separately with file sync
+  // Update books metadata (progress, lastLocation, etc.)
+  const booksTx = db.transaction('books', 'readwrite')
+  const booksStore = booksTx.objectStore('books')
+  for (const book of (data.books || [])) {
+    // Read existing to preserve file blob (not in merged data from cloud)
+    const existing = await new Promise(r => { const req = booksStore.get(book.id); req.onsuccess = () => r(req.result); req.onerror = () => r(null) })
+    if (existing) {
+      // Update metadata but keep local file
+      booksStore.put({ ...existing, progress: book.progress, lastLocation: book.lastLocation, lastReadAt: book.lastReadAt, title: book.title, author: book.author, coverBlob: book.coverBlob || existing.coverBlob })
+    }
+  }
+  await new Promise((resolve, reject) => {
+    booksTx.oncomplete = resolve
+    booksTx.onerror = () => reject(booksTx.error)
+  })
   
   db.close()
 }
