@@ -107,7 +107,7 @@
 
     async function render() {
       const allWords = await getActiveVocabulary()
-      reviewCards = await getWordsForReview(50)
+      reviewCards = shuffle(await getWordsForReview(50))
       reviewIndex = 0
 
       statsText.textContent = `${allWords.length} 词`
@@ -157,51 +157,25 @@
       }
     }
 
-    function insertReviewCard() {
-      if (reviewIndex >= reviewCards.length) return
-      const w = reviewCards[reviewIndex]
-      const el = document.createElement('div')
-      el.className = 'review-card'
-      el.id = 'current-review'
-      el.innerHTML = `
-        <div class="label">📖 复习 (${reviewIndex + 1}/${reviewCards.length})</div>
-        <div class="word">${esc(w.word)}</div>
-        <div class="answer">${esc(w.translation || '(无翻译)')}</div>
-        <div class="tap-hint">点击显示答案</div>
-        <div class="review-buttons">
-          <button class="btn-forgot" data-q="1">忘了</button>
-          <button class="btn-hard" data-q="3">想起来了</button>
-          <button class="btn-good" data-q="5">秒答</button>
-        </div>
-      `
-      el.addEventListener('click', (e) => {
-        if (e.target.tagName === 'BUTTON') return
-        el.classList.add('revealed')
-      })
-      el.querySelectorAll('.review-buttons button').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const quality = parseInt(btn.dataset.q)
-          await updateWordReview(w.word, quality)
-          debouncedSync()
-          reviewIndex++
-          el.remove()
-          if (reviewIndex < reviewCards.length) {
-            // Insert next review card at top of feed
-            const firstChild = feed.firstChild
-            insertReviewCardBefore(firstChild)
-          }
-        })
-      })
-      feed.prepend(el)
+    // Fisher-Yates shuffle
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]]
+      }
+      return arr
     }
 
-    function insertReviewCardBefore(ref) {
-      if (reviewIndex >= reviewCards.length) return
+    function createReviewCard() {
+      if (reviewIndex >= reviewCards.length) return null
       const w = reviewCards[reviewIndex]
       const el = document.createElement('div')
       el.className = 'review-card'
       el.innerHTML = `
-        <div class="label">📖 复习 (${reviewIndex + 1}/${reviewCards.length})</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div class="label">📖 复习 (${reviewIndex + 1}/${reviewCards.length})</div>
+          <button class="review-delete" title="已掌握，删除" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--text-secondary);opacity:0.5;padding:2px 6px;">✕</button>
+        </div>
         <div class="word">${esc(w.word)}</div>
         <div class="answer">${esc(w.translation || '(无翻译)')}</div>
         <div class="tap-hint">点击显示答案</div>
@@ -215,20 +189,49 @@
         if (e.target.tagName === 'BUTTON') return
         el.classList.add('revealed')
       })
+      // Delete button — remove word entirely
+      el.querySelector('.review-delete').addEventListener('click', async (e) => {
+        e.stopPropagation()
+        await deleteWord(w.word)
+        debouncedSync()
+        reviewIndex++
+        el.remove()
+        advanceReviewCard()
+        // Update stats
+        const allWords = await getActiveVocabulary()
+        statsText.textContent = `${allWords.length} 词`
+        // Also remove from word list below
+        feed.querySelectorAll('.word-item').forEach(item => {
+          if (item.querySelector('.word-text')?.textContent === w.word) item.remove()
+        })
+      })
+      // Review buttons
       el.querySelectorAll('.review-buttons button').forEach(btn => {
         btn.addEventListener('click', async () => {
-          const quality = parseInt(btn.dataset.q)
-          await updateWordReview(w.word, quality)
+          await updateWordReview(w.word, parseInt(btn.dataset.q))
           debouncedSync()
           reviewIndex++
           el.remove()
-          if (reviewIndex < reviewCards.length) {
-            const sectionTitle = feed.querySelector('.section-title')
-            insertReviewCardBefore(sectionTitle)
-          }
+          advanceReviewCard()
         })
       })
-      feed.insertBefore(el, ref)
+      return el
+    }
+
+    function advanceReviewCard() {
+      if (reviewIndex < reviewCards.length) {
+        const card = createReviewCard()
+        if (card) {
+          const sectionTitle = feed.querySelector('.section-title')
+          if (sectionTitle) feed.insertBefore(card, sectionTitle)
+          else feed.prepend(card)
+        }
+      }
+    }
+
+    function insertReviewCard() {
+      const card = createReviewCard()
+      if (card) feed.prepend(card)
     }
 
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
