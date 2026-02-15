@@ -287,7 +287,7 @@
         translationStates.set(bookId, { status: 'error', message: '需要重新上传书籍' })
         updateBookBadge(bookId); activeTranslations.delete(bookId); return
       }
-      let task = getQueuedTask(bookId), allParagraphs = task?.paragraphs || null
+      let task = getQueuedTask(bookId), allParagraphs = null // always re-parse, don't trust cached paragraphs
       const existing = await getBookTranslations(bookId)
       const existingSet = new Set(Object.keys(existing))
       try {
@@ -550,6 +550,14 @@
       }
       if (toDelete.length > 0) { for (const id of toDelete) await deleteBook(id); books = books.filter(b => !toDelete.includes(b.id)) }
       
+      // Fix [object Object] authors
+      for (const book of books) {
+        if (book.author && typeof book.author === 'object') {
+          book.author = formatAuthor(book.author)
+          await saveBook(book)
+        }
+      }
+
       // Clear grid (keep add card)
       bookGrid.querySelectorAll('.book-card').forEach(el => el.remove())
       
