@@ -116,18 +116,21 @@ function mergeData(local, remote) {
     highlights: [],
   }
   
-  // Merge books (by id)
+  // Merge books (by id) — local wins on progress if more recent
   const booksMap = new Map()
-  for (const book of (remote.books || [])) {
+  for (const book of (local.books || [])) {
     booksMap.set(book.id, book)
   }
-  for (const book of (local.books || [])) {
+  for (const book of (remote.books || [])) {
     const existing = booksMap.get(book.id)
     if (existing) {
-      // Keep the one with more recent activity
+      // Local wins if it has more recent reading activity
+      // Only take remote if it's genuinely newer
       if ((book.lastReadAt || 0) > (existing.lastReadAt || 0)) {
-        booksMap.set(book.id, book)
+        // Remote is newer — take remote but preserve local file
+        booksMap.set(book.id, { ...book, file: existing.file || book.file })
       }
+      // Otherwise keep local (already in map)
     } else {
       booksMap.set(book.id, book)
     }
