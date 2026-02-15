@@ -354,3 +354,39 @@
   - Tombstones auto-expire after 30 days (sufficient for multi-device propagation)
 - **Affected files**: sync.js (merge logic + export), reader.html (highlight delete), flashcards.html (word delete), db.js (deleteWord function)
 - **Key principle**: In a distributed sync system, "delete" is itself a piece of data that must be replicated — not just the absence of data
+
+#### Batch 24: LWW soft-delete sync — multi-device best practice (2026-02-15)
+
+**Problem**: Highlights/vocabulary deleted on one device get resurrected by sync from another device. The previous fix (localStorage tombstones uploaded to Dropbox) was insufficient because:
+- Tombstones were a separate array, not part of the records themselves
+- Each device maintained its own tombstone list
+- Race conditions between devices could lose tombstone data
+
+**Solution — LWW-Element-Set (industry standard CRDT pattern)**:
+
+The sync model now follows the **Last-Writer-Wins Element Set** pattern used in distributed systems:
+
+1. **Soft delete**: Records are never physically removed from IndexedDB. `deleteWord()` and `deleteHighlightByText()` set `deletedAt = Date.now()` on the record instead of removing it.
+
+2. **Records carry their own state**: Each highlight/vocabulary record has `addedAt` and optional `deletedAt`. No separate tombstone arrays needed — the deletion state travels WITH the data.
+
+3. **LWW merge rule**: When the same item exists on both sides (keyed by `word` for vocab, `bookId:text` for highlights), the version with the latest `max(addedAt, deletedAt)` wins. This ensures:
+   - Device A deletes a word → `deletedAt` set → synced to Dropbox
+   - Device B syncs → sees `deletedAt` is newer → word stays deleted
+   - If Device B later re-adds the word → `addedAt` is now newest → word is alive again
+
+4. **Display filters**: All UI code uses `getActiveVocabulary()` / `getActiveHighlights()` which filter out records with `deletedAt`. Sync code uses `getAllVocabulary()` / `getAllHighlights()` which includes soft-deleted records.
+
+5. **applyMergedData**: Highlights no longer use `clear() + add()` (which destroyed IDs and could lose data). Instead, existing records are read into a map by `bookId:text` key, and merged records are applied via `put()` preserving auto-increment IDs.
+
+6. **Backward compatible**: v1 data with `deletedHighlights`/`deletedVocab` arrays is migrated during merge — tombstones are applied to matching records as `deletedAt` fields.
+
+**Sync design summary**:
+| Data type | Key | Merge strategy |
+|-----------|-----|---------------|
+| Books (progress) | `id` | LWW by `lastReadAt` |
+| Vocabulary | `word` | LWW-Element-Set (`max(addedAt, deletedAt)`) |
+| Highlights | `bookId:text` | LWW-Element-Set (`max(addedAt, deletedAt)`) |
+| Translations | `bookId:hash` | Additive (never deleted) |
+
+**Files changed**: db.js (soft-delete), sync.js (LWW merge), reader.html, index.html, flashcards.html, highlights.html (use active-only queries for display)
