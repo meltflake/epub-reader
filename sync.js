@@ -69,10 +69,10 @@ export async function syncWithDropbox(progressCallback) {
       }
     }
     
-    progressCallback?.('正在合并数据...')
+    progressCallback?.(`正在合并数据... (本地${localData.books?.length || 0}本, 云端${remoteData?.books?.length || 0}本)`)
     const mergedData = mergeData(localData, remoteData)
     
-    progressCallback?.('正在更新本地数据库...')
+    progressCallback?.(`正在更新本地数据库... (合并后${mergedData.books?.length || 0}本)`)
     await applyMergedData(mergedData)
     
     const freshLocalData = await exportLocalData()
@@ -231,16 +231,21 @@ async function applyMergedData(data) {
   await new Promise((resolve, reject) => { hlTx.oncomplete = resolve; hlTx.onerror = () => reject(hlTx.error) })
   
   // --- Books: LWW by lastReadAt ---
+  // Read all existing books first (avoid await inside transaction — kills tx on Safari/WebKit)
+  const booksReadTx = db.transaction('books')
+  const existingBooks = await new Promise(r => {
+    const req = booksReadTx.objectStore('books').getAll()
+    req.onsuccess = () => r(req.result)
+    req.onerror = () => r([])
+  })
+  const existingBooksMap = new Map(existingBooks.map(b => [b.id, b]))
+  
+  // Now write in a single synchronous pass (no await inside transaction)
   const booksTx = db.transaction('books', 'readwrite')
   const booksStore = booksTx.objectStore('books')
   for (const book of (data.books || [])) {
-    const existing = await new Promise(r => {
-      const req = booksStore.get(book.id)
-      req.onsuccess = () => r(req.result)
-      req.onerror = () => r(null)
-    })
+    const existing = existingBooksMap.get(book.id)
     if (!existing) {
-      // New book from remote — add it (without file blob, will be downloaded by syncBookFiles)
       console.log(`📚 APPLY: adding new book "${book.title}" from remote`)
       booksStore.put(book)
     } else {
