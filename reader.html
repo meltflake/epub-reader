@@ -275,38 +275,57 @@
       console.log(`📚 localStorage backup readAt=${backup.lastReadAt} progress=${Math.round((backup.progress||0)*100)}% — IndexedDB is current or newer`)
     }
     
-    // If not in local cache, try to download from Dropbox
-    if (!bookData || !bookData.file) {
+    // Check if file blob is valid (iOS Safari may evict large blobs from IndexedDB)
+    let fileValid = false
+    if (bookData?.file) {
+      try {
+        // Test if the blob is actually readable
+        const testSlice = bookData.file.slice(0, 4)
+        await testSlice.arrayBuffer()
+        fileValid = true
+      } catch { fileValid = false }
+    }
+    
+    // If file missing or invalid, try to download from Dropbox
+    if (!bookData || !fileValid) {
       if (isDropboxConfigured() && isLoggedIn()) {
         document.getElementById('loading').textContent = '从云端下载书籍...'
         try {
           const { downloadBook, downloadData } = await import('./dropbox.js')
           
-          // Get metadata from cloud
-          const cloudData = await downloadData()
-          const bookMeta = cloudData?.books?.find(b => b.id === bookId)
-          
-          if (bookMeta) {
-            // Download the actual book file
-            const blob = await downloadBook(bookId)
-            if (blob) {
-              bookData = {
-                ...bookMeta,
-                file: new File([blob], `${bookMeta.title || bookId}.epub`, { type: 'application/epub+zip' }),
-              }
-              // Cache locally
-              await saveBook(bookData)
+          // Try direct file download first (don't need metadata for this)
+          const blob = await downloadBook(bookId)
+          if (blob) {
+            // Get metadata from cloud or use existing local metadata
+            let meta = bookData || {}
+            if (!meta.title) {
+              try {
+                const cloudData = await downloadData()
+                const cloudMeta = cloudData?.books?.find(b => b.id === bookId)
+                if (cloudMeta) meta = { ...meta, ...cloudMeta }
+              } catch {}
             }
+            bookData = {
+              ...meta,
+              id: bookId,
+              file: new File([blob], `${meta.title || bookId}.epub`, { type: 'application/epub+zip' }),
+            }
+            await saveBook(bookData)
+            fileValid = true
           }
         } catch (e) {
           console.error('Failed to download from Dropbox:', e)
+          document.getElementById('loading').textContent = `下载失败: ${e.message}`
         }
       }
     }
     
-    if (!bookData || !bookData.file) { 
-      alert('Book not found'); 
-      location.href = 'index.html'; 
+    if (!bookData || !fileValid) { 
+      document.getElementById('loading').textContent = '无法打开书籍，请返回重试'
+      // Add a clickable back link
+      const backLink = document.createElement('div')
+      backLink.innerHTML = '<a href="index.html" style="color:var(--accent);text-decoration:underline;font-size:16px;display:block;margin-top:16px">← 返回书架</a>'
+      document.getElementById('loading').appendChild(backLink)
       throw new Error('not found') 
     }
 
