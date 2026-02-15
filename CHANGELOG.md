@@ -284,3 +284,12 @@
   - `relocate` event (any page turn): `hideDict()` at start of handler
   - Horizontal swipe (touchend): `hideDict()` before `goLeft()`/`goRight()`
   - Quick tap on mobile: if dict popup is visible, tap dismisses it (instead of toggling toolbar); second tap toggles toolbar as normal
+
+#### Batch 19: Cross-tab translation lock (2026-02-15)
+- **Bug**: Multiple browser tabs on the homepage could each independently start translating the same book, causing duplicate API calls and wasted cost
+- **Root cause**: `activeTranslations` Set is per-tab (in-memory), no cross-tab coordination existed
+- **Fix**: Uses `navigator.locks` API (Web Locks) to acquire a per-book named lock (`nixbook-translate-{bookId}`) with `ifAvailable: true`
+  - If lock acquired: proceed with translation
+  - If lock held by another tab: show "其他标签页翻译中..." badge, skip
+  - Fallback: if `navigator.locks` unavailable (rare), proceeds without lock (same as before)
+- **Scope**: Only affects translation — reading/sync are unaffected
