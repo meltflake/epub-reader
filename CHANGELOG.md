@@ -249,3 +249,12 @@
 - **sync.js hardened**: `applyMergedData` now uses STRICT greater-than (`>` not `>=`) for progress overwrites. Same-timestamp case only updates metadata (title, author, paragraphCount), never progress/lastLocation.
 - **Comprehensive logging added**: every sync step logs with `📚 SYNC`, `📚 MERGE`, `📚 APPLY` prefixes, showing progress values and which side wins
 - **Key insight from testing**: once IndexedDB has stale data, reader loads it and saves with new `lastReadAt`, creating a self-reinforcing loop. The localStorage backup breaks this loop.
+
+#### Batch 15: Offline ECDICT dictionary (2026-02-15)
+- **Replaced MyMemory API with offline dictionary**: 80,000 high-frequency English words from ECDICT
+- Source: `skywind3000/ECDICT` (CC licensed), processed to compact JSON format
+- Each entry: `word → [phonetic, translation]`, e.g. `"ephemeral": ["i'femәrәl", "a. 朝生暮死的, 短命的, 短暂的"]`
+- **4.9MB JSON**, loaded async on reader init → instant lookup (in-memory hash map)
+- Dictionary popup now shows **phonetic notation** (`/fəˈnetɪk/`) between word and translation
+- Fallback: if word not in offline dict, tries MyMemory API (graceful degradation)
+- **No network needed** for word lookup in normal reading
