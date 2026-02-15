@@ -49,6 +49,14 @@
 
     #reader-container { flex: 1; position: relative; overflow: hidden; background: var(--bg); min-height: 0; }
     #reader-container foliate-view { width: 100%; height: 100%; }
+    
+    /* Mobile bottom safe area — prevent browser nav bar from covering content */
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      #reader-container { padding-bottom: env(safe-area-inset-bottom); }
+    }
+    @media (pointer: coarse) {
+      #reader-container foliate-view { height: calc(100% - 32px); }
+    }
 
     .bottom-bar {
       display: none; /* Hidden by default */
@@ -515,13 +523,11 @@
       // Detect touch device
       const isTouchDevice = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0
       
-      // Click navigation - only close popups on PC, handle taps on mobile
+      // Click handler — PC only (mobile uses touchend to avoid double-fire)
       doc.addEventListener('click', e => {
-        // Always close popups when clicking/tapping
         hideDict()
         hideDeletePopup()
         
-        // Check if clicking on a highlight
         const highlightSpan = e.target.closest?.('.epub-highlight')
         if (highlightSpan) {
           e.preventDefault()
@@ -530,16 +536,10 @@
           return
         }
         
-        // On PC: any click toggles toolbar (unless text selected)
-        if (!isTouchDevice()) {
-          if (e.target.closest?.('a[href]')) return
-          const sel = doc.getSelection()
-          if (sel && sel.toString().trim().length > 0) return
-          toggleBars()
-          return
-        }
+        // Skip on touch devices — touchend handles tap/swipe
+        if (isTouchDevice()) return
         
-        // On mobile: quick tap toggles toolbar (no edge navigation)
+        // PC: click toggles toolbar (unless text selected or link)
         if (e.target.closest?.('a[href]')) return
         const sel = doc.getSelection()
         if (sel && sel.toString().trim().length > 0) return
@@ -853,10 +853,18 @@
       dictTranslation.innerHTML = '<span class="loading-text">翻译中...</span>'
       
       const popupWidth = 280, popupHeight = 100
-      let left = Math.min(x, window.innerWidth - popupWidth - 20)
-      // Show above selection by default (avoids mobile browser toolbar)
-      let top = y - popupHeight - 10
-      if (top < 10) top = y + 20 // fallback to below if no room above
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+      let left, top
+      if (isTouch) {
+        // Mobile: fixed position at top center, never blocked by browser toolbar
+        left = Math.max(10, (window.innerWidth - popupWidth) / 2)
+        top = 60
+      } else {
+        // PC: near the selection
+        left = Math.min(x, window.innerWidth - popupWidth - 20)
+        top = y - popupHeight - 10
+        if (top < 10) top = y + 20
+      }
       dictPopup.style.left = Math.max(10, left) + 'px'
       dictPopup.style.top = Math.max(10, top) + 'px'
       dictPopup.classList.add('show')
