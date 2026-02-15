@@ -530,7 +530,7 @@
           return
         }
         
-        // On PC: center click toggles toolbar; On mobile: edges navigate, center toggles
+        // On PC: center click toggles toolbar
         if (!isTouchDevice()) {
           const width = (e.view || window).innerWidth
           const height = (e.view || window).innerHeight
@@ -541,24 +541,11 @@
           return
         }
         
-        // Check if user has text selected - don't navigate
-        const sel = doc.getSelection()
-        if (sel && sel.toString().trim().length > 0) {
-          return
-        }
-        
+        // On mobile: quick tap toggles toolbar (no edge navigation)
         if (e.target.closest?.('a[href]')) return
-        const width = (e.view || window).innerWidth
-        const height = (e.view || window).innerHeight
-        const x = e.clientX
-        const y = e.clientY
-        // Center tap: toggle toolbar
-        if (x > width * 0.25 && x < width * 0.75 && y > height * 0.3 && y < height * 0.7) {
-          toggleBars()
-          return
-        }
-        if (x < width * 0.25) view.goLeft()
-        else if (x > width * 0.75) view.goRight()
+        const sel = doc.getSelection()
+        if (sel && sel.toString().trim().length > 0) return
+        toggleBars()
       })
       
       // Swipe gesture support for mobile
@@ -705,8 +692,8 @@
       // Don't intercept if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       
-      if (e.key === 'ArrowLeft') { e.preventDefault(); view.goLeft() }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); view.goRight() }
+      if (e.key === 'ArrowLeft' || e.key === 'VolumeUp') { e.preventDefault(); view.goLeft() }
+      else if (e.key === 'ArrowRight' || e.key === 'VolumeDown') { e.preventDefault(); view.goRight() }
       else if (e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); view.next() }
       else if (e.key === 'ArrowUp') { e.preventDefault(); view.prev() }
     })
