@@ -239,7 +239,11 @@ async function applyMergedData(data) {
       req.onsuccess = () => r(req.result)
       req.onerror = () => r(null)
     })
-    if (existing) {
+    if (!existing) {
+      // New book from remote — add it (without file blob, will be downloaded by syncBookFiles)
+      console.log(`📚 APPLY: adding new book "${book.title}" from remote`)
+      booksStore.put(book)
+    } else {
       const existingReadAt = existing.lastReadAt || 0
       const mergedReadAt = book.lastReadAt || 0
       

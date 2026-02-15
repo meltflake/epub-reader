@@ -624,14 +624,13 @@
 
       // Clear grid (keep add card)
       bookGrid.querySelectorAll('.book-card').forEach(el => el.remove())
+      bookGrid.querySelectorAll('.empty-hint').forEach(el => el.remove())
       
       if (books.length === 0) {
         const hint = document.createElement('div'); hint.className = 'empty-hint'; hint.textContent = '还没有书籍，点击上方 + 添加'
         bookGrid.appendChild(hint)
         return
       }
-      
-      document.querySelector('.empty-hint')?.remove()
       
       for (const book of books) {
         const card = document.createElement('div'); card.className = 'book-card'; card.setAttribute('data-book-id', book.id)
