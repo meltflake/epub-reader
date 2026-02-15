@@ -282,7 +282,8 @@
       if (activeTranslations.has(bookId)) return
       activeTranslations.add(bookId)
       if (!file || !(file instanceof Blob)) {
-        translationStates.set(bookId, { status: 'error', message: '文件无效' })
+        console.error('Translation: no valid file for', bookId, typeof file, file)
+        translationStates.set(bookId, { status: 'error', message: '需要重新上传书籍' })
         updateBookBadge(bookId); activeTranslations.delete(bookId); return
       }
       let task = getQueuedTask(bookId), allParagraphs = task?.paragraphs || null
@@ -498,7 +499,7 @@
         const meta = book.metadata || {}
         const cover = await book.getCover?.() || null
         const title = meta.title || file.name.replace(/\.epub$/i, '')
-        const author = Array.isArray(meta.author) ? meta.author.map(a => typeof a === 'string' ? a : (a.name || String(a))).join(', ') : (meta.author?.name || meta.author || '')
+        const author = formatAuthor(meta.author)
         return { title, author, coverBlob: cover }
       } catch (e) { console.error('Cover extraction failed:', e); return null }
     }
@@ -524,9 +525,11 @@
     function strToColor(s) { let h = 0; for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0; return `hsl(${Math.abs(h) % 360}, 45%, 65%)` }
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
     function formatAuthor(a) {
-      if (!a) return ''; if (typeof a === 'string') return a
-      if (Array.isArray(a)) return a.map(x => typeof x === 'string' ? x : (x.name || String(x))).join(', ')
-      return a.name || String(a)
+      if (!a) return ''
+      if (typeof a === 'string') return a
+      if (Array.isArray(a)) return a.map(x => formatAuthor(x)).filter(Boolean).join(', ')
+      if (typeof a === 'object') return a.name || a.value || a.text || ''
+      return String(a)
     }
 
     async function renderBooks() {
