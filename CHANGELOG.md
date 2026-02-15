@@ -217,3 +217,16 @@
   4. Added `visibilitychange` and `pagehide` handlers to save progress when user swipes back or switches apps
   5. Added `📚` prefixed logging to trace sync decisions
 - **Key principle**: IndexedDB is source of truth. Cloud is a mirror. Never let cloud overwrite local unless cloud is strictly newer.
+
+#### Batch 12: Cover extraction + translation completion sync (2026-02-15)
+- **Bug 1**: Book covers not showing on homepage (new browser or after sync)
+  - Root cause: `coverBlob` stored in IndexedDB only, not synced via Dropbox. New browsers have null coverBlob.
+  - Fix: `renderBooks()` now detects missing covers and extracts them in background from the EPUB file. Card updates dynamically when cover is ready.
+  - Added `extractCoverOnly(file)` — lightweight cover-only extraction (no metadata parsing overhead).
+- **Bug 2**: Translation completion status not syncing across devices
+  - Root cause: `isTranslationComplete()` and `totalParas` both stored in `localStorage` — per-browser, not synced.
+  - Fix: `paragraphCount` now stored in book metadata (IndexedDB), included in `exportLocalData()`, synced via Dropbox.
+  - On new browser: if `translationCount >= book.paragraphCount`, shows "已翻译 N/M 段 ✓" immediately.
+  - If `paragraphCount` unknown but translations exist and file available, runs `countParagraphs(file)` in background to determine completion.
+  - Backfill: localStorage paragraph counts automatically migrated to IndexedDB on render.
+- **Key principle**: Any state that affects UI across devices must live in IndexedDB (synced), not localStorage (per-browser).
