@@ -580,8 +580,8 @@
         const dx = touchEndX - touchStartX
         const dy = touchEndY - touchStartY
         
-        // Require horizontal swipe (more horizontal than vertical, min 50px)
-        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+        // Require horizontal swipe (more horizontal than vertical, min 80px on mobile)
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 80) {
           // Check no text is selected
           const sel = doc.getSelection()
           if (sel && sel.toString().trim().length > 0) {
@@ -600,32 +600,40 @@
         touchStartY = null
       }, { passive: true })
       
-      // Selection listener for dictionary / highlight
-      doc.addEventListener('mouseup', () => {
-        setTimeout(() => {
+      // Selection handler (shared by mouseup + selectionchange)
+      function handleSelection() {
+        const sel = doc.getSelection()
+        const text = sel?.toString().trim()
+        if (!text || text.length < 2) return
+        
+        console.log('Selected:', text)
+        const range = sel.getRangeAt(0)
+        const rect = range.getBoundingClientRect()
+        const viewRect = view.getBoundingClientRect()
+        const x = rect.left + viewRect.left
+        const y = rect.top + viewRect.top - 10 // show ABOVE selection so browser toolbar doesn't cover it
+        
+        const isWord = !text.includes(' ') && text.length < 30 && /^[a-zA-Z'-]+$/.test(text)
+        
+        if (isWord) {
+          showDict(text, x, y, bookData.title)
+        } else if (text.length < 2000) {
+          hideDict()
+          applyHighlight(text, range, doc)
+        }
+      }
+
+      // PC: mouseup
+      doc.addEventListener('mouseup', () => setTimeout(handleSelection, 50))
+
+      // Mobile: selectionchange (debounced) — fires when user adjusts selection handles
+      let selChangeTimer = null
+      doc.addEventListener('selectionchange', () => {
+        clearTimeout(selChangeTimer)
+        selChangeTimer = setTimeout(() => {
           const sel = doc.getSelection()
-          const text = sel?.toString().trim()
-          if (!text || text.length < 2) return
-          
-          console.log('Selected:', text)
-          const range = sel.getRangeAt(0)
-          const rect = range.getBoundingClientRect()
-          const viewRect = view.getBoundingClientRect()
-          const x = rect.left + viewRect.left
-          const y = rect.bottom + viewRect.top
-          
-          // Determine if it's a word or sentence
-          const isWord = !text.includes(' ') && text.length < 30 && /^[a-zA-Z'-]+$/.test(text)
-          
-          if (isWord) {
-            // Single word -> dictionary
-            showDict(text, x, y, bookData.title)
-          } else if (text.length < 2000) {
-            // Sentence/passage -> auto highlight
-            hideDict()
-            applyHighlight(text, range, doc)
-          }
-        }, 50)
+          if (sel && sel.toString().trim().length >= 2) handleSelection()
+        }, 400)
       })
     })
 
@@ -856,8 +864,9 @@
       
       const popupWidth = 280, popupHeight = 100
       let left = Math.min(x, window.innerWidth - popupWidth - 20)
-      let top = y + 20
-      if (top + popupHeight > window.innerHeight) top = y - popupHeight - 10
+      // Show above selection by default (avoids mobile browser toolbar)
+      let top = y - popupHeight - 10
+      if (top < 10) top = y + 20 // fallback to below if no room above
       dictPopup.style.left = Math.max(10, left) + 'px'
       dictPopup.style.top = Math.max(10, top) + 'px'
       dictPopup.classList.add('show')
