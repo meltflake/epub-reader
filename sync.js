@@ -1,4 +1,18 @@
-// Sync Module - Coordinates between IndexedDB and Dropbox
+// Sync Module - LWW (Last-Writer-Wins) merge for multi-device sync
+// 
+// SYNC DESIGN (best practice for offline-first multi-device):
+//
+// 1. BOOKS (progress): LWW by `lastReadAt` — newer timestamp wins
+// 2. HIGHLIGHTS: LWW-Element-Set by `bookId:text` key
+//    - Each record has `addedAt` and optional `deletedAt`
+//    - Active = no `deletedAt` or `addedAt > deletedAt`
+//    - Merge: for same key, keep record with latest `max(addedAt, deletedAt)`
+//    - "Delete wins" on tie (deletedAt >= addedAt)
+// 3. VOCABULARY: LWW-Element-Set by `word` key — same as highlights
+// 4. TRANSLATIONS: Additive merge (never deleted)
+//
+// No separate tombstone arrays needed — deletion state lives in the records themselves.
+
 import { getAllBooks, getAllVocabulary, getAllHighlights, getBookTranslations, importTranslations, saveBook } from './db.js'
 import { 
   isDropboxConfigured, isLoggedIn, uploadData, downloadData, 
@@ -6,11 +20,11 @@ import {
   uploadBookTranslations, downloadBookTranslations
 } from './dropbox.js'
 
-// Export all local data (translations are synced separately per book)
+// Export all local data (includes soft-deleted records for sync)
 export async function exportLocalData() {
   const books = await getAllBooks()
-  const vocabulary = await getAllVocabulary()
-  const highlights = await getAllHighlights()
+  const vocabulary = await getAllVocabulary()  // includes soft-deleted
+  const highlights = await getAllHighlights()  // includes soft-deleted
   
   const booksMetadata = books.map(b => ({
     id: b.id,
@@ -23,20 +37,12 @@ export async function exportLocalData() {
     paragraphCount: b.paragraphCount || null,
   }))
   
-  // Include tombstones so deletions propagate across devices
-  let deletedHighlights = []
-  let deletedVocab = []
-  try { deletedHighlights = JSON.parse(localStorage.getItem('highlight-tombstones') || '[]') } catch {}
-  try { deletedVocab = JSON.parse(localStorage.getItem('vocab-tombstones') || '[]') } catch {}
-
   return {
-    version: 1,
+    version: 2,  // v2: soft-delete model (no separate tombstone arrays)
     exportedAt: Date.now(),
     books: booksMetadata,
     vocabulary,
     highlights,
-    deletedHighlights,
-    deletedVocab,
   }
 }
 
@@ -53,12 +59,10 @@ export async function syncWithDropbox(progressCallback) {
     progressCallback?.('正在读取本地数据...')
     const localData = await exportLocalData()
     
-    // Log pre-merge state for every book
     for (const lb of (localData.books || [])) {
       const rb = (remoteData?.books || []).find(b => b.id === lb.id)
       console.log(`📚 SYNC [${lb.title}]: local progress=${Math.round((lb.progress||0)*100)}% readAt=${lb.lastReadAt}, remote progress=${rb ? Math.round((rb.progress||0)*100)+'%' : 'N/A'} readAt=${rb?.lastReadAt || 'N/A'}`)
     }
-    // Also log remote-only books
     for (const rb of (remoteData?.books || [])) {
       if (!(localData.books || []).find(b => b.id === rb.id)) {
         console.log(`📚 SYNC [${rb.title}]: remote-only progress=${Math.round((rb.progress||0)*100)}% readAt=${rb.lastReadAt}`)
@@ -71,82 +75,48 @@ export async function syncWithDropbox(progressCallback) {
     progressCallback?.('正在更新本地数据库...')
     await applyMergedData(mergedData)
     
-    // Re-read fresh local data AFTER apply
     const freshLocalData = await exportLocalData()
     
     progressCallback?.('正在上传到云端...')
     await uploadData(freshLocalData)
-    
-    // Clean up old tombstones (keep last 30 days for multi-device propagation)
-    try {
-      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
-      for (const key of ['highlight-tombstones', 'vocab-tombstones']) {
-        const ts = JSON.parse(localStorage.getItem(key) || '[]')
-        localStorage.setItem(key, JSON.stringify(ts.filter(t => (t.deletedAt || 0) > cutoff)))
-      }
-    } catch {}
     
     progressCallback?.('正在同步书籍文件...')
     await syncBookFiles(freshLocalData.books, progressCallback)
     
     progressCallback?.('正在同步翻译...')
     for (const book of freshLocalData.books) {
-      try {
-        await syncBookTranslations(book.id)
-      } catch (e) {
-        console.warn('Translation sync failed for', book.id, e.message)
-      }
+      try { await syncBookTranslations(book.id) } catch (e) { console.warn('Translation sync failed for', book.id, e.message) }
     }
     
     progressCallback?.('同步完成!')
     return { success: true }
-    
   } catch (e) {
     console.error('Sync error:', e)
     return { success: false, error: e.message }
   }
 }
 
-// Merge local and remote data
-// Merge tombstone arrays from two sources, deduplicate by key
-function mergeTombstones(remote = [], local = [], keyType) {
-  const map = new Map()
-  for (const t of [...remote, ...local]) {
-    let key
-    if (keyType === 'word') key = t.word
-    else key = `${t.bookId}:${t.text}`
-    // Keep the one with the latest deletedAt
-    const existing = map.get(key)
-    if (!existing || (t.deletedAt || 0) > (existing.deletedAt || 0)) {
-      map.set(key, t)
-    }
-  }
-  return Array.from(map.values())
+// Get the "latest action" timestamp for a record (used for LWW comparison)
+function recordTimestamp(record) {
+  return Math.max(record.addedAt || 0, record.deletedAt || 0)
 }
 
 function mergeData(local, remote) {
   if (!remote) return local
   
-  const merged = {
-    version: 1,
-    exportedAt: Date.now(),
-    books: [],
-    vocabulary: [],
-    highlights: [],
-  }
+  const merged = { version: 2, exportedAt: Date.now(), books: [], vocabulary: [], highlights: [] }
   
+  // --- Books: LWW by lastReadAt ---
   const booksMap = new Map()
-  for (const book of (local.books || [])) {
-    booksMap.set(book.id, book)
-  }
+  for (const book of (local.books || [])) booksMap.set(book.id, book)
   for (const book of (remote.books || [])) {
     const existing = booksMap.get(book.id)
     if (existing) {
       if ((book.lastReadAt || 0) > (existing.lastReadAt || 0)) {
-        console.log(`📚 MERGE: remote wins for "${book.title}": remote readAt=${book.lastReadAt} > local readAt=${existing.lastReadAt}, progress ${Math.round((existing.progress||0)*100)}% → ${Math.round((book.progress||0)*100)}%`)
+        console.log(`📚 MERGE: remote wins for "${book.title}": remote readAt=${book.lastReadAt} > local readAt=${existing.lastReadAt}`)
         booksMap.set(book.id, book)
       } else {
-        console.log(`📚 MERGE: local wins for "${existing.title}": local readAt=${existing.lastReadAt} >= remote readAt=${book.lastReadAt}, keeping progress=${Math.round((existing.progress||0)*100)}%`)
+        console.log(`📚 MERGE: local wins for "${existing.title}": local readAt=${existing.lastReadAt} >= remote readAt=${book.lastReadAt}`)
       }
     } else {
       booksMap.set(book.id, book)
@@ -154,74 +124,113 @@ function mergeData(local, remote) {
   }
   merged.books = Array.from(booksMap.values())
   
-  // Merge deletion tombstones from both sides (union, deduplicated)
-  const allDeletedHighlights = mergeTombstones(remote.deletedHighlights, local.deletedHighlights, 'bookId:text')
-  const allDeletedVocab = mergeTombstones(remote.deletedVocab, local.deletedVocab, 'word')
-  merged.deletedHighlights = allDeletedHighlights
-  merged.deletedVocab = allDeletedVocab
-  
-  // Persist merged tombstones to localStorage so this device knows about remote deletes too
-  try { localStorage.setItem('highlight-tombstones', JSON.stringify(allDeletedHighlights)) } catch {}
-  try { localStorage.setItem('vocab-tombstones', JSON.stringify(allDeletedVocab)) } catch {}
-  
-  // Merge vocabulary (by word) — respect tombstones
-  const vocabTombstoneKeys = new Set(allDeletedVocab.map(t => t.word))
+  // --- Vocabulary: LWW-Element-Set by `word` ---
+  // For v1 remote data that has separate tombstone arrays, migrate them
+  const remoteVocabTombstones = new Map()
+  if (remote.deletedVocab) {
+    for (const t of remote.deletedVocab) remoteVocabTombstones.set(t.word, t.deletedAt || 0)
+  }
   
   const vocabMap = new Map()
-  for (const word of (remote.vocabulary || [])) {
-    if (!vocabTombstoneKeys.has(word.word)) vocabMap.set(word.word, word)
-  }
-  for (const word of (local.vocabulary || [])) {
-    if (vocabTombstoneKeys.has(word.word)) continue
-    const existing = vocabMap.get(word.word)
-    if (existing) {
-      vocabMap.set(word.word, { ...existing, ...word, count: Math.max(existing.count || 1, word.count || 1), interval: Math.max(existing.interval || 0, word.interval || 0) })
+  for (const w of [...(remote.vocabulary || []), ...(local.vocabulary || [])]) {
+    const key = w.word
+    // Apply v1 tombstones to records that don't have deletedAt yet
+    if (remoteVocabTombstones.has(key) && !w.deletedAt) {
+      w.deletedAt = remoteVocabTombstones.get(key)
+    }
+    const existing = vocabMap.get(key)
+    if (!existing) {
+      vocabMap.set(key, w)
     } else {
-      vocabMap.set(word.word, word)
+      // LWW: keep the one with the latest timestamp
+      if (recordTimestamp(w) > recordTimestamp(existing)) {
+        vocabMap.set(key, { ...existing, ...w })
+      } else {
+        // Merge non-conflict fields: take max count, max interval
+        vocabMap.set(key, {
+          ...w, ...existing,
+          count: Math.max(existing.count || 1, w.count || 1),
+          interval: Math.max(existing.interval || 0, w.interval || 0),
+        })
+      }
     }
   }
   merged.vocabulary = Array.from(vocabMap.values())
   
-  // Merge highlights — respect tombstones from both devices
-  const hlTombstoneKeys = new Set(allDeletedHighlights.map(t => `${t.bookId}:${t.text}`))
+  // --- Highlights: LWW-Element-Set by `bookId:text` ---
+  const remoteHlTombstones = new Map()
+  if (remote.deletedHighlights) {
+    for (const t of remote.deletedHighlights) remoteHlTombstones.set(`${t.bookId}:${t.text}`, t.deletedAt || 0)
+  }
   
-  const highlightSet = new Set()
-  const highlights = []
+  const hlMap = new Map()
   for (const hl of [...(remote.highlights || []), ...(local.highlights || [])]) {
     const key = `${hl.bookId}:${hl.text}`
-    if (hlTombstoneKeys.has(key)) continue  // Skip deleted highlights
-    if (!highlightSet.has(key)) { highlightSet.add(key); highlights.push(hl) }
+    // Apply v1 tombstones
+    if (remoteHlTombstones.has(key) && !hl.deletedAt) {
+      hl.deletedAt = remoteHlTombstones.get(key)
+    }
+    const existing = hlMap.get(key)
+    if (!existing) {
+      hlMap.set(key, hl)
+    } else {
+      // LWW: keep the one with the latest timestamp
+      if (recordTimestamp(hl) > recordTimestamp(existing)) {
+        hlMap.set(key, hl)
+      }
+      // else keep existing (earlier entry in the loop)
+    }
   }
-  merged.highlights = highlights
+  merged.highlights = Array.from(hlMap.values())
   
   return merged
 }
 
-// Apply merged data to local IndexedDB — NEVER overwrites newer local data
+// Apply merged data to local IndexedDB
 async function applyMergedData(data) {
-  const DB_NAME = 'epub-reader'
-  const DB_VERSION = 4
-  
   const db = await new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    const req = indexedDB.open('epub-reader', 4)
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
   
-  // Update vocabulary
+  // --- Vocabulary: put all (including soft-deleted) ---
   const vocabTx = db.transaction('vocabulary', 'readwrite')
   const vocabStore = vocabTx.objectStore('vocabulary')
   for (const word of (data.vocabulary || [])) vocabStore.put(word)
   await new Promise((resolve, reject) => { vocabTx.oncomplete = resolve; vocabTx.onerror = () => reject(vocabTx.error) })
   
-  // Update highlights
+  // --- Highlights: merge by key (bookId:text), not clear+add ---
   const hlTx = db.transaction('highlights', 'readwrite')
   const hlStore = hlTx.objectStore('highlights')
-  hlStore.clear()
-  for (const hl of (data.highlights || [])) { const { id, ...rest } = hl; hlStore.add(rest) }
+  
+  // Read existing highlights into a map by key
+  const existingHl = await new Promise(r => {
+    const req = hlStore.getAll()
+    req.onsuccess = () => r(req.result)
+    req.onerror = () => r([])
+  })
+  const existingHlMap = new Map()
+  for (const hl of existingHl) existingHlMap.set(`${hl.bookId}:${hl.text}`, hl)
+  
+  // Apply merged highlights
+  for (const hl of (data.highlights || [])) {
+    const key = `${hl.bookId}:${hl.text}`
+    const existing = existingHlMap.get(key)
+    if (existing) {
+      // Update existing record (preserve its auto-increment id)
+      if (recordTimestamp(hl) >= recordTimestamp(existing)) {
+        hlStore.put({ ...existing, ...hl, id: existing.id })
+      }
+    } else {
+      // New record — add (auto-increment id)
+      const { id, ...rest } = hl
+      hlStore.add(rest)
+    }
+  }
   await new Promise((resolve, reject) => { hlTx.oncomplete = resolve; hlTx.onerror = () => reject(hlTx.error) })
   
-  // Update books — ONLY if merged is strictly newer
+  // --- Books: LWW by lastReadAt ---
   const booksTx = db.transaction('books', 'readwrite')
   const booksStore = booksTx.objectStore('books')
   for (const book of (data.books || [])) {
@@ -235,8 +244,7 @@ async function applyMergedData(data) {
       const mergedReadAt = book.lastReadAt || 0
       
       if (mergedReadAt > existingReadAt) {
-        // Merged is strictly newer — update progress
-        console.log(`📚 APPLY: updating "${existing.title}" progress ${Math.round((existing.progress||0)*100)}% → ${Math.round((book.progress||0)*100)}% (merged readAt ${mergedReadAt} > existing ${existingReadAt})`)
+        console.log(`📚 APPLY: updating "${existing.title}" progress ${Math.round((existing.progress||0)*100)}% → ${Math.round((book.progress||0)*100)}%`)
         booksStore.put({
           ...existing,
           progress: book.progress,
@@ -248,8 +256,7 @@ async function applyMergedData(data) {
           paragraphCount: book.paragraphCount || existing.paragraphCount || null,
         })
       } else if (mergedReadAt === existingReadAt) {
-        // Same timestamp — only update non-progress fields (title, author, paragraphCount)
-        console.log(`📚 APPLY: same readAt for "${existing.title}" — updating metadata only, keeping progress=${Math.round((existing.progress||0)*100)}%`)
+        console.log(`📚 APPLY: same readAt for "${existing.title}" — metadata only`)
         booksStore.put({
           ...existing,
           title: book.title || existing.title,
@@ -257,8 +264,7 @@ async function applyMergedData(data) {
           paragraphCount: book.paragraphCount || existing.paragraphCount || null,
         })
       } else {
-        // Local is newer — don't touch
-        console.log(`📚 APPLY: SKIP "${existing.title}" — local is newer (existing readAt ${existingReadAt} > merged ${mergedReadAt}), keeping progress=${Math.round((existing.progress||0)*100)}%`)
+        console.log(`📚 APPLY: SKIP "${existing.title}" — local is newer`)
       }
     }
   }
@@ -303,9 +309,7 @@ export async function pushToDropbox() {
     const localData = await exportLocalData()
     await uploadData(localData)
     return { success: true }
-  } catch (e) {
-    return { success: false, error: e.message }
-  }
+  } catch (e) { return { success: false, error: e.message } }
 }
 
 // Sync translations for a specific book

@@ -81,7 +81,7 @@
   <div class="feed" id="feed"></div>
 
   <script type="module">
-    import { getAllVocabulary, getWordsForReview, updateWordReview, deleteWord } from './db.js'
+    import { getActiveVocabulary, getWordsForReview, updateWordReview, deleteWord } from './db.js'
     import { toggleTheme, getTheme } from './theme.js'
     import { isDropboxConfigured, isLoggedIn } from './dropbox.js'
     import { pushToDropbox } from './sync.js'
@@ -106,7 +106,7 @@
     let reviewIndex = 0
 
     async function render() {
-      const allWords = await getAllVocabulary()
+      const allWords = await getActiveVocabulary()
       reviewCards = await getWordsForReview(50)
       reviewIndex = 0
 
@@ -148,12 +148,6 @@
         `
         el.querySelector('.delete-btn').addEventListener('click', async () => {
           await deleteWord(w.word)
-          // Record tombstone so sync won't bring it back
-          try {
-            const tombstones = JSON.parse(localStorage.getItem('vocab-tombstones') || '[]')
-            tombstones.push({ word: w.word.toLowerCase(), deletedAt: Date.now() })
-            localStorage.setItem('vocab-tombstones', JSON.stringify(tombstones))
-          } catch {}
           el.remove()
           debouncedSync()
           const remaining = feed.querySelectorAll('.word-item').length

@@ -160,7 +160,7 @@
   </div>
 
   <script type="module">
-    import { getAllHighlights, deleteHighlight } from './db.js'
+    import { getActiveHighlights, deleteHighlight } from './db.js'
     import { toggleTheme, getTheme } from './theme.js'
 
     // Theme toggle
@@ -174,7 +174,7 @@
     const container = document.getElementById('container')
 
     async function render() {
-      const highlights = await getAllHighlights()
+      const highlights = await getActiveHighlights()
       
       if (!highlights || highlights.length === 0) {
         container.innerHTML = `
@@ -243,7 +243,7 @@
 
     // Export
     document.getElementById('btn-export').addEventListener('click', async () => {
-      const highlights = await getAllHighlights()
+      const highlights = await getActiveHighlights()
       if (!highlights || highlights.length === 0) {
         alert('没有划线可导出')
         return

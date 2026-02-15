@@ -183,7 +183,7 @@
   <input type="file" id="file-input" accept=".epub" hidden>
 
   <script type="module">
-    import { saveBook, getBook, getAllBooks, deleteBook, getAllVocabulary, getAllHighlights, getBookTranslations, importTranslations } from './db.js'
+    import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, importTranslations } from './db.js'
     import { toggleTheme, getTheme } from './theme.js'
     import { isDropboxConfigured, isLoggedIn, startAuth, handleAuthCallback, clearAccessToken, getSyncStatus } from './dropbox.js'
     import { syncWithDropbox, pushToDropbox, syncBookTranslations } from './sync.js'
@@ -736,7 +736,7 @@
     }
 
     async function updateToolCounts() {
-      const vocab = await getAllVocabulary(), highlights = await getAllHighlights()
+      const vocab = await getActiveVocabulary(), highlights = await getActiveHighlights()
       document.getElementById('vocab-count').textContent = vocab.length
       document.getElementById('highlight-count').textContent = highlights.length
     }

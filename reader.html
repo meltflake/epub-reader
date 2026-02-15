@@ -173,7 +173,7 @@
     
     console.log('📚 Reader script starting...')
     
-    import { getBook, saveBook, saveWord, getAllVocabulary, saveHighlight, getAllHighlights, deleteHighlightByText, getBookTranslations, hashText } from './db.js'
+    import { getBook, saveBook, saveWord, getActiveVocabulary, saveHighlight, getActiveHighlights, deleteHighlightByText, getBookTranslations, hashText } from './db.js'
     import { toggleTheme, getTheme } from './theme.js'
     import { isDropboxConfigured, isLoggedIn } from './dropbox.js'
     import { pushToDropbox } from './sync.js'
@@ -331,7 +331,7 @@
 
     async function loadVocabWordsCache() {
       if (cachedVocabWords !== null) return cachedVocabWords
-      const all = await getAllVocabulary()
+      const all = await getActiveVocabulary()
       cachedVocabWords = new Set(all.map(v => v.word.toLowerCase()))
       console.log(`Loaded ${cachedVocabWords.size} vocabulary words for highlighting`)
       return cachedVocabWords
@@ -408,7 +408,7 @@
     
     async function loadHighlightsCache() {
       if (cachedHighlights !== null) return cachedHighlights
-      const all = await getAllHighlights()
+      const all = await getActiveHighlights()
       cachedHighlights = all.filter(h => h.bookId === bookId)
       console.log(`Loaded ${cachedHighlights.length} highlights for this book`)
       return cachedHighlights
@@ -961,13 +961,6 @@
       // Remove from database
       const deleted = await deleteHighlightByText(bookId, text)
       console.log('Highlight deleted from DB:', deleted, text.substring(0, 30))
-      
-      // Record tombstone so sync won't bring it back
-      try {
-        const tombstones = JSON.parse(localStorage.getItem('highlight-tombstones') || '[]')
-        tombstones.push({ bookId, text, deletedAt: Date.now() })
-        localStorage.setItem('highlight-tombstones', JSON.stringify(tombstones))
-      } catch {}
       
       // Remove from cache
       if (cachedHighlights) {

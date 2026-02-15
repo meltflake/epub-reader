@@ -19,7 +19,6 @@ function openDB() {
         hlStore.createIndex('addedAt', 'addedAt')
       }
       if (!db.objectStoreNames.contains('translations')) {
-        // Key: bookId + paragraph hash, Value: { bookId, hash, original, translation }
         const transStore = db.createObjectStore('translations', { keyPath: ['bookId', 'hash'] })
         transStore.createIndex('bookId', 'bookId')
       }
@@ -69,6 +68,8 @@ export async function deleteBook(id) {
 }
 
 // --- Vocabulary (single words) ---
+// LWW soft-delete: records have optional `deletedAt`. When set, the word is "deleted".
+// Re-adding a deleted word clears `deletedAt`.
 export async function saveWord(word, translation = '', bookTitle = '') {
   const db = await openDB()
   return new Promise((resolve, reject) => {
@@ -76,25 +77,24 @@ export async function saveWord(word, translation = '', bookTitle = '') {
     const store = tx.objectStore('vocabulary')
     const getReq = store.get(word.toLowerCase())
     getReq.onsuccess = () => {
-      if (!getReq.result) {
-        // New word - initialize with spaced repetition fields
+      const existing = getReq.result
+      if (!existing) {
         store.put({
           word: word.toLowerCase(),
           translation: translation,
           addedAt: Date.now(),
           book: bookTitle,
           count: 1,
-          // Spaced repetition fields
-          nextReview: Date.now(), // Review immediately
-          interval: 0,           // Days until next review
-          easeFactor: 2.5        // SM-2 default
+          nextReview: Date.now(),
+          interval: 0,
+          easeFactor: 2.5
         })
       } else {
-        const existing = getReq.result
         existing.count = (existing.count || 1) + 1
-        if (translation && !existing.translation) {
-          existing.translation = translation
-        }
+        if (translation && !existing.translation) existing.translation = translation
+        // Revive if soft-deleted
+        if (existing.deletedAt) delete existing.deletedAt
+        existing.addedAt = existing.addedAt || Date.now()
         store.put(existing)
       }
     }
@@ -104,7 +104,6 @@ export async function saveWord(word, translation = '', bookTitle = '') {
 }
 
 export async function updateWordReview(word, quality) {
-  // quality: 0-2 = forgot, 3-5 = remembered (SM-2 scale)
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('vocabulary', 'readwrite')
@@ -113,26 +112,16 @@ export async function updateWordReview(word, quality) {
     getReq.onsuccess = () => {
       if (!getReq.result) return
       const card = getReq.result
-      
-      // Simplified SM-2 algorithm
       if (quality < 3) {
-        // Forgot - reset
         card.interval = 0
         card.nextReview = Date.now()
       } else {
-        // Remembered
-        if (card.interval === 0) {
-          card.interval = 1
-        } else if (card.interval === 1) {
-          card.interval = 3
-        } else {
-          card.interval = Math.round(card.interval * card.easeFactor)
-        }
-        // Adjust ease factor
+        if (card.interval === 0) card.interval = 1
+        else if (card.interval === 1) card.interval = 3
+        else card.interval = Math.round(card.interval * card.easeFactor)
         card.easeFactor = Math.max(1.3, card.easeFactor + (0.1 - (5 - quality) * 0.08))
         card.nextReview = Date.now() + card.interval * 24 * 60 * 60 * 1000
       }
-      
       store.put(card)
     }
     tx.oncomplete = resolve
@@ -147,7 +136,7 @@ export async function getWordsForReview(limit = 20) {
     req.onsuccess = () => {
       const now = Date.now()
       const due = req.result
-        .filter(w => w.nextReview <= now && w.translation)
+        .filter(w => !w.deletedAt && w.nextReview <= now && w.translation)
         .sort((a, b) => a.nextReview - b.nextReview)
         .slice(0, limit)
       resolve(due)
@@ -156,6 +145,7 @@ export async function getWordsForReview(limit = 20) {
   })
 }
 
+// Returns ALL records including soft-deleted (for sync export)
 export async function getAllVocabulary() {
   const db = await openDB()
   return new Promise((resolve, reject) => {
@@ -165,11 +155,26 @@ export async function getAllVocabulary() {
   })
 }
 
+// Returns only active (non-deleted) records (for display)
+export async function getActiveVocabulary() {
+  const all = await getAllVocabulary()
+  return all.filter(w => !w.deletedAt)
+}
+
+// Soft-delete: set deletedAt instead of removing
 export async function deleteWord(word) {
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('vocabulary', 'readwrite')
-    tx.objectStore('vocabulary').delete(word.toLowerCase())
+    const store = tx.objectStore('vocabulary')
+    const getReq = store.get(word.toLowerCase())
+    getReq.onsuccess = () => {
+      if (getReq.result) {
+        const record = getReq.result
+        record.deletedAt = Date.now()
+        store.put(record)
+      }
+    }
     tx.oncomplete = resolve
     tx.onerror = () => reject(tx.error)
   })
@@ -186,15 +191,38 @@ export async function clearVocabulary() {
 }
 
 // --- Highlights (sentences/passages) ---
+// LWW soft-delete: records have optional `deletedAt`.
+// Key for identity: `bookId:text`
 export async function saveHighlight(highlight) {
-  // highlight: { bookId, bookTitle, text, cfi?, addedAt }
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('highlights', 'readwrite')
     const store = tx.objectStore('highlights')
     highlight.addedAt = highlight.addedAt || Date.now()
-    const req = store.add(highlight)
-    req.onsuccess = () => resolve(req.result) // returns the auto-generated id
+    
+    // Check if a soft-deleted version exists — revive it
+    const req = store.openCursor()
+    let found = false
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (cursor) {
+        if (cursor.value.bookId === highlight.bookId && cursor.value.text === highlight.text) {
+          // Revive: clear deletedAt, update addedAt
+          const existing = cursor.value
+          delete existing.deletedAt
+          existing.addedAt = highlight.addedAt
+          existing.bookTitle = highlight.bookTitle || existing.bookTitle
+          store.put(existing)
+          found = true
+          return // Don't continue cursor
+        }
+        cursor.continue()
+      } else if (!found) {
+        // Not found — add new
+        store.add(highlight)
+      }
+    }
+    tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
 }
@@ -205,11 +233,12 @@ export async function getHighlightsByBook(bookId) {
     const tx = db.transaction('highlights')
     const index = tx.objectStore('highlights').index('bookId')
     const req = index.getAll(bookId)
-    req.onsuccess = () => resolve(req.result)
+    req.onsuccess = () => resolve(req.result.filter(h => !h.deletedAt))
     req.onerror = () => reject(req.error)
   })
 }
 
+// Returns ALL records including soft-deleted (for sync export)
 export async function getAllHighlights() {
   const db = await openDB()
   return new Promise((resolve, reject) => {
@@ -219,16 +248,32 @@ export async function getAllHighlights() {
   })
 }
 
+// Returns only active (non-deleted) records (for display)
+export async function getActiveHighlights() {
+  const all = await getAllHighlights()
+  return all.filter(h => !h.deletedAt)
+}
+
 export async function deleteHighlight(id) {
+  // Soft-delete by id
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('highlights', 'readwrite')
-    tx.objectStore('highlights').delete(id)
+    const store = tx.objectStore('highlights')
+    const getReq = store.get(id)
+    getReq.onsuccess = () => {
+      if (getReq.result) {
+        const record = getReq.result
+        record.deletedAt = Date.now()
+        store.put(record)
+      }
+    }
     tx.oncomplete = resolve
     tx.onerror = () => reject(tx.error)
   })
 }
 
+// Soft-delete by bookId + text
 export async function deleteHighlightByText(bookId, text) {
   const db = await openDB()
   return new Promise((resolve, reject) => {
@@ -238,14 +283,16 @@ export async function deleteHighlightByText(bookId, text) {
     req.onsuccess = () => {
       const cursor = req.result
       if (cursor) {
-        if (cursor.value.bookId === bookId && cursor.value.text === text) {
-          cursor.delete()
+        if (cursor.value.bookId === bookId && cursor.value.text === text && !cursor.value.deletedAt) {
+          const record = cursor.value
+          record.deletedAt = Date.now()
+          store.put(record)
           resolve(true)
           return
         }
         cursor.continue()
       } else {
-        resolve(false) // Not found
+        resolve(false)
       }
     }
     req.onerror = () => reject(req.error)
@@ -263,13 +310,12 @@ export async function clearHighlights() {
 }
 
 // --- Translations ---
-// Simple hash function for paragraph text
 function hashText(text) {
   let hash = 0
   for (let i = 0; i < text.length; i++) {
     const char = text.charCodeAt(i)
     hash = ((hash << 5) - hash) + char
-    hash = hash & hash // Convert to 32bit integer
+    hash = hash & hash
   }
   return hash.toString(36)
 }
@@ -281,13 +327,7 @@ export async function saveTranslation(bookId, original, translation) {
   const hash = hashText(original)
   return new Promise((resolve, reject) => {
     const tx = db.transaction('translations', 'readwrite')
-    tx.objectStore('translations').put({
-      bookId,
-      hash,
-      original,
-      translation,
-      savedAt: Date.now()
-    })
+    tx.objectStore('translations').put({ bookId, hash, original, translation, savedAt: Date.now() })
     tx.oncomplete = () => resolve(hash)
     tx.onerror = () => reject(tx.error)
   })
@@ -310,11 +350,8 @@ export async function getBookTranslations(bookId) {
     const index = tx.objectStore('translations').index('bookId')
     const req = index.getAll(bookId)
     req.onsuccess = () => {
-      // Return as a map: hash -> translation
       const map = {}
-      for (const t of req.result) {
-        map[t.hash] = t.translation
-      }
+      for (const t of req.result) map[t.hash] = t.translation
       resolve(map)
     }
     req.onerror = () => reject(req.error)
@@ -330,10 +367,7 @@ export async function clearBookTranslations(bookId) {
     const req = index.openCursor(bookId)
     req.onsuccess = () => {
       const cursor = req.result
-      if (cursor) {
-        cursor.delete()
-        cursor.continue()
-      }
+      if (cursor) { cursor.delete(); cursor.continue() }
     }
     tx.oncomplete = resolve
     tx.onerror = () => reject(tx.error)
@@ -355,9 +389,7 @@ export async function importTranslations(translations) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('translations', 'readwrite')
     const store = tx.objectStore('translations')
-    for (const t of translations) {
-      store.put(t)
-    }
+    for (const t of translations) store.put(t)
     tx.oncomplete = resolve
     tx.onerror = () => reject(tx.error)
   })
