@@ -815,29 +815,25 @@
     // Navigate to saved position or start
     // CRITICAL: Track the known-good progress so relocate events during init don't overwrite it
     const savedProgress = bookData.progress || 0
-    const savedLocation = bookData.lastLocation || null
     let initComplete = false  // true once we've confirmed position is correct
     let initTimestamp = 0     // when init completed — protect for 3s after
 
-    console.log('📚 Initializing view position...', bookData.lastLocation ? `lastLocation=${bookData.lastLocation.substring(0,60)}` : 'NO lastLocation → showTextStart')
+    // STRATEGY: Always init with showTextStart, then jump to saved fraction.
+    // This avoids the fragile CFI restoration that frequently fails with
+    // "setEnd on Range: parameter 1 is not of type Node" errors.
+    // Fraction-based positioning is less precise but 100% reliable.
+    console.log(`📚 Initializing view... savedProgress=${Math.round(savedProgress * 100)}%`)
     try {
-      if (bookData.lastLocation) {
-        await view.init({ lastLocation: bookData.lastLocation })
-      } else {
-        await view.init({ showTextStart: true })
+      await view.init({ showTextStart: true })
+      if (savedProgress > 0.001) {
+        console.log(`📚 Jumping to saved fraction: ${Math.round(savedProgress * 100)}%`)
+        view.goToFraction(savedProgress)
       }
       initTimestamp = Date.now()
       console.log('📚 View position initialized OK')
     } catch (e) {
-      console.warn('⚠️ Failed to restore position:', e.message)
-      // DON'T clear lastLocation or save — keep the known-good data intact
-      // Just try to display something
+      console.error('❌ View init failed:', e.message)
       initTimestamp = Date.now()
-      try {
-        await view.init({ showTextStart: true })
-      } catch (e2) {
-        console.error('❌ View init failed completely:', e2)
-      }
     }
 
     // --- Keyboard navigation on main document (so it works immediately) ---
