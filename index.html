@@ -181,7 +181,7 @@
     </div>
   </div>
   <input type="file" id="file-input" accept=".epub" hidden>
-  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.0.24</div>
+  <div id="app-version" style="text-align:center;font-size:11px;color:var(--dim);padding:8px 0;opacity:0.5">v0.0.25</div>
 
   <script type="module">
     import { saveBook, getBook, getAllBooks, deleteBook, getActiveVocabulary, getActiveHighlights, getBookTranslations, getAllTranslationCounts, importTranslations } from './db.js'
@@ -483,18 +483,32 @@
       cloudIcon.title = '点击同步'
     }
 
+    // Debug sync log (visible on screen)
+    const syncLog = document.createElement('div')
+    syncLog.id = 'sync-log'
+    syncLog.style.cssText = 'position:fixed;bottom:40px;left:8px;right:8px;max-height:200px;overflow:auto;background:var(--bg);border:1px solid var(--dim);border-radius:8px;padding:8px;font-size:11px;font-family:monospace;z-index:9999;display:none;white-space:pre-wrap;color:var(--fg)'
+    document.body.appendChild(syncLog)
+    function slog(msg) {
+      syncLog.style.display = 'block'
+      syncLog.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n'
+      syncLog.scrollTop = syncLog.scrollHeight
+    }
+
     async function doSync(silent = false) {
-      if (isSyncing) return
+      if (isSyncing) { slog('⏳ sync already running'); return }
+      slog(`doSync: configured=${isDropboxConfigured()} loggedIn=${isLoggedIn()}`)
       if (!isDropboxConfigured() || !isLoggedIn()) {
+        slog('❌ not configured or not logged in')
         if (!silent) startAuth()
         return
       }
       isSyncing = true
       cloudIcon.classList.add('spinning')
       try {
-        const result = await syncWithDropbox(() => {})
+        const result = await syncWithDropbox(msg => slog('📡 ' + msg))
+        slog(result.success ? '✅ sync done' : '❌ sync failed: ' + result.error)
         if (result.success) { await renderBooks(); updateToolCounts() }
-      } catch (e) { console.error('Sync error:', e) }
+      } catch (e) { slog('💥 sync error: ' + e.message); console.error('Sync error:', e) }
       finally { isSyncing = false; cloudIcon.classList.remove('spinning'); updateSyncUI() }
     }
 
