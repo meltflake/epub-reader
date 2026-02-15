@@ -275,7 +275,10 @@
     // --- Toggle toolbar/bottombar ---
     const toolbar = document.querySelector('.toolbar')
     const bottomBar = document.querySelector('.bottom-bar')
-    toolbar.classList.add('hidden')
+    // Auto-hide toolbar on mobile only
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      toolbar.classList.add('hidden')
+    }
     function toggleBars() {
       toolbar.classList.toggle('hidden')
       bottomBar.classList.toggle('bar-hidden')
@@ -530,14 +533,12 @@
           return
         }
         
-        // On PC: center click toggles toolbar
+        // On PC: any click toggles toolbar (unless text selected)
         if (!isTouchDevice()) {
-          const width = (e.view || window).innerWidth
-          const height = (e.view || window).innerHeight
-          const x = e.clientX, y = e.clientY
-          if (x > width * 0.25 && x < width * 0.75 && y > height * 0.3 && y < height * 0.7) {
-            toggleBars()
-          }
+          if (e.target.closest?.('a[href]')) return
+          const sel = doc.getSelection()
+          if (sel && sel.toString().trim().length > 0) return
+          toggleBars()
           return
         }
         
