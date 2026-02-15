@@ -310,25 +310,26 @@ async function syncBookFiles(booksMeta, progressCallback) {
     }
   }
   
+  progressCallback?.(`远端书籍文件: ${remoteBookIds.length}个`)
   for (const bookId of remoteBookIds) {
     const localBook = localBooksMap.get(bookId)
     // Download if book doesn't exist locally OR exists but has no file blob (metadata-only from sync)
     if (!localBook || !localBook.file) {
-      const meta = booksMeta.find(b => b.id === bookId)
-      if (meta) {
-        progressCallback?.(`下载书籍: ${meta.title || bookId}...`)
-        try {
-          const blob = await downloadBook(bookId)
-          if (blob) {
-            // Re-read fresh record (applyMergedData may have written metadata)
-            const fresh = await (async () => {
-              const { getBook } = await import('./db.js')
-              return await getBook(bookId)
-            })()
-            const bookToSave = fresh || meta
-            await saveBook({ ...bookToSave, file: new File([blob], `${meta.title || bookId}.epub`, { type: 'application/epub+zip' }) })
-          }
-        } catch (e) { console.error(`Failed to download book ${bookId}:`, e) }
+      const meta = booksMeta.find(b => b.id === bookId) || { id: bookId, title: bookId, addedAt: Date.now() }
+      progressCallback?.(`下载书籍: ${meta.title || bookId}...`)
+      try {
+        const blob = await downloadBook(bookId)
+        if (blob) {
+          // Re-read fresh record (applyMergedData may have written metadata)
+          const { getBook } = await import('./db.js')
+          const fresh = await getBook(bookId)
+          const bookToSave = fresh || meta
+          await saveBook({ ...bookToSave, file: new File([blob], `${meta.title || bookId}.epub`, { type: 'application/epub+zip' }) })
+          progressCallback?.(`✅ 下载完成: ${meta.title || bookId}`)
+        }
+      } catch (e) {
+        progressCallback?.(`❌ 下载失败: ${bookId} - ${e.message}`)
+        console.error(`Failed to download book ${bookId}:`, e)
       }
     }
   }
