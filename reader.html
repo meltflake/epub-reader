@@ -221,7 +221,7 @@
             font-size: ${fs}px !important;
             padding: 20px 20px 60px 20px !important;
           }
-          * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+          * { -webkit-touch-callout: none; }
           p, li, blockquote, dd { line-height: 1.8; }
           p { margin-bottom: 1.2em !important; text-indent: 0 !important; }
           a, a:link, a:visited { color: ${c.link} !important; text-decoration: underline; }
@@ -555,90 +555,48 @@
         toggleBars()
       })
       
-      // Swipe gesture + long-press word detection for mobile
+      // Swipe gesture for mobile
       let touchStartX = null
       let touchStartY = null
-      let longPressTimer = null
-      let longPressFired = false
-      
-      function getWordAtPoint(doc, x, y) {
-        const range = doc.caretRangeFromPoint?.(x, y) || (doc.caretPositionFromPoint?.(x, y)?.let?.(p => { const r = doc.createRange(); r.setStart(p.offsetNode, p.offset); return r }))
-        if (!range) return null
-        const node = range.startContainer
-        if (node.nodeType !== 3) return null
-        const text = node.textContent
-        const offset = range.startOffset
-        // Find word boundaries
-        let start = offset, end = offset
-        while (start > 0 && /[\w'-]/.test(text[start - 1])) start--
-        while (end < text.length && /[\w'-]/.test(text[end])) end++
-        const word = text.slice(start, end).trim()
-        if (!word || !/[a-zA-Z]/.test(word)) return null
-        // Create range for positioning
-        const wordRange = doc.createRange()
-        wordRange.setStart(node, start)
-        wordRange.setEnd(node, end)
-        return { word, range: wordRange }
-      }
+      let touchStartTime = null
       
       doc.addEventListener('touchstart', e => {
         if (e.touches.length === 1) {
           touchStartX = e.touches[0].clientX
           touchStartY = e.touches[0].clientY
-          longPressFired = false
-          longPressTimer = setTimeout(() => {
-            longPressFired = true
-            const result = getWordAtPoint(doc, touchStartX, touchStartY)
-            if (result && result.word.length >= 2) {
-              const rect = result.range.getBoundingClientRect()
-              const viewRect = view.getBoundingClientRect()
-              showDict(result.word, rect.left + viewRect.left, rect.top + viewRect.top - 10, bookData.title)
-              // Visual feedback: briefly highlight the word
-              const sel = doc.getSelection()
-              sel.removeAllRanges()
-              sel.addRange(result.range)
-              setTimeout(() => sel.removeAllRanges(), 500)
-            }
-          }, 500)
-        }
-      }, { passive: true })
-      
-      doc.addEventListener('touchmove', e => {
-        if (longPressTimer && touchStartX !== null) {
-          const dx = Math.abs(e.touches[0].clientX - touchStartX)
-          const dy = Math.abs(e.touches[0].clientY - touchStartY)
-          if (dx > 10 || dy > 10) { clearTimeout(longPressTimer); longPressTimer = null }
+          touchStartTime = Date.now()
         }
       }, { passive: true })
 
       doc.addEventListener('touchend', e => {
-        clearTimeout(longPressTimer); longPressTimer = null
-        if (longPressFired) { touchStartX = null; touchStartY = null; longPressFired = false; return }
         if (touchStartX === null) return
         
         const touchEndX = e.changedTouches[0].clientX
         const touchEndY = e.changedTouches[0].clientY
         const dx = touchEndX - touchStartX
         const dy = touchEndY - touchStartY
+        const elapsed = Date.now() - touchStartTime
+        const moved = Math.abs(dx) > 10 || Math.abs(dy) > 10
         
-        // Require horizontal swipe (more horizontal than vertical, min 80px on mobile)
-        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 80) {
-          // Check no text is selected
+        // Quick tap (< 300ms, barely moved, no text selected) → toggle toolbar
+        if (elapsed < 300 && !moved) {
           const sel = doc.getSelection()
-          if (sel && sel.toString().trim().length > 0) {
-            touchStartX = null
-            return
+          if (!sel || sel.toString().trim().length === 0) {
+            if (!e.target.closest?.('a[href]')) toggleBars()
           }
-          
-          if (dx > 0) {
-            view.goLeft()  // Swipe right = previous page
-          } else {
-            view.goRight() // Swipe left = next page
+        }
+        // Horizontal swipe (> 80px) → page turn
+        else if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 80) {
+          const sel = doc.getSelection()
+          if (!sel || sel.toString().trim().length === 0) {
+            if (dx > 0) view.goLeft()
+            else view.goRight()
           }
         }
         
         touchStartX = null
         touchStartY = null
+        touchStartTime = null
       }, { passive: true })
       
       // Selection handler (shared by mouseup + selectionchange)
@@ -667,7 +625,15 @@
       // PC: mouseup
       doc.addEventListener('mouseup', () => setTimeout(handleSelection, 50))
 
-      // selectionchange removed — mobile uses custom long-press word detection
+      // Mobile: selectionchange handles both word lookup and sentence highlight
+      let selChangeTimer = null
+      doc.addEventListener('selectionchange', () => {
+        clearTimeout(selChangeTimer)
+        selChangeTimer = setTimeout(() => {
+          const sel = doc.getSelection()
+          if (sel && sel.toString().trim().length >= 2) handleSelection()
+        }, 600)
+      })
     })
 
     try {
