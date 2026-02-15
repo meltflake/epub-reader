@@ -313,3 +313,21 @@
   - No separate "flashcard mode" — review is naturally embedded in the feed
 - **db.js**: Added `deleteWord(word)` function for vocabulary deletion
 - **TOC panel**: Moved from left to right side to match the TOC button position in toolbar
+
+#### Batch 22: Progress protection during init (2026-02-15)
+- **Bug**: Reading progress reverts to beginning of book when re-entering reader
+- **Root cause chain** (confirmed via console logs):
+  1. `view.init({ lastLocation: cfi })` attempts to restore CFI position
+  2. foliate-js internally fails to resolve CFI → "Failed to execute 'setEnd' on 'Range': parameter 1 is not of type 'Node'" 
+  3. The view falls back to an early position (e.g. "Part I: Opportunity" at 8%)
+  4. `relocate` event fires immediately with this WRONG position
+  5. The handler saves this wrong position to IndexedDB + localStorage backup, overwriting real progress
+  6. On next visit, the corrupted (early) position is loaded → **permanent progress loss**
+- **Fix — 3-second init protection window**:
+  - Track `savedProgress` (the known-good value from IndexedDB/backup) before `view.init()`
+  - For 3 seconds after init, `relocate` events that would REGRESS progress (fraction < savedProgress) are **blocked** — not saved to IndexedDB or localStorage
+  - First `relocate` that reaches or exceeds saved progress → protection ends, normal saving resumes
+  - After 3s timeout → protection expires, accepts current position (user may have manually navigated)
+  - Console logs: `⛔ BLOCKED` for rejected saves, `✅ Init confirmed` when position matches
+- **Also fixed**: `view.init()` failure no longer clears `bookData.lastLocation` — the known-good CFI is preserved so next visit can retry
+- **Key principle**: Never overwrite known-good progress with a position that is BEHIND it, especially during the first few seconds of reader initialization
