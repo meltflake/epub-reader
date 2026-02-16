@@ -724,8 +724,8 @@
         } else if (book.file) {
           badgeHTML = `<div class="book-translate-badge clickable" data-action="translate">翻译</div>`
         } else {
-          // No local file and no translations — cloud-only book, need re-import to translate
-          translateInfoHTML = `<div class="book-translate-info" style="color:var(--text-muted);opacity:0.7">需导入 epub 翻译</div>`
+          // No local file — try to fetch from Dropbox when user clicks translate
+          badgeHTML = `<div class="book-translate-badge clickable" data-action="translate-cloud">翻译</div>`
         }
         
         card.innerHTML = `${coverHTML}${badgeHTML}<div class="book-info"><div class="book-title">${esc(book.title || 'Untitled')}</div>${book.author ? `<div class="book-author">${esc(formatAuthor(book.author))}</div>` : ''}${progressHTML}${translateInfoHTML}</div><button class="book-delete" title="删除">×</button>`
@@ -742,6 +742,30 @@
         
         const translateBtn = card.querySelector('[data-action="translate"]')
         if (translateBtn && book.file) translateBtn.addEventListener('click', e => { e.stopPropagation(); startBookTranslation(book.id, book.file) })
+        
+        const cloudTranslateBtn = card.querySelector('[data-action="translate-cloud"]')
+        if (cloudTranslateBtn) cloudTranslateBtn.addEventListener('click', async e => {
+          e.stopPropagation()
+          cloudTranslateBtn.textContent = '下载中...'
+          cloudTranslateBtn.classList.remove('clickable')
+          try {
+            const { downloadBook } = await import('./dropbox.js')
+            const blob = await downloadBook(book.id)
+            if (blob) {
+              const file = new File([blob], `${book.title || book.id}.epub`, { type: 'application/epub+zip' })
+              const fresh = await getBook(book.id)
+              if (fresh) { fresh.file = file; await saveBook(fresh) }
+              startBookTranslation(book.id, file)
+            } else {
+              cloudTranslateBtn.textContent = '下载失败'
+              cloudTranslateBtn.classList.add('error')
+            }
+          } catch (err) {
+            console.error('Cloud download for translation failed:', err)
+            cloudTranslateBtn.textContent = '下载失败'
+            cloudTranslateBtn.classList.add('error')
+          }
+        })
         
         bookGrid.appendChild(card)
       }
